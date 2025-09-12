@@ -1,0 +1,9 @@
+apiVersion: supporterino.de/v1alpha1
+kind: PiHoleCluster
+metadata:
+  labels:
+    app.kubernetes.io/name: pi-hole-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: piholecluster-sample
+spec:
+  # TODO(user): Add fields here

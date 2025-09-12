@@ -1,0 +1,229 @@
+/*
+Copyright 2025.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package v1alpha1
+
+import (
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// PiHoleClusterSpec defines the desired state of PiHoleCluster
+type PiHoleClusterSpec struct {
+	// Name is a human‑readable identifier for the cluster.
+	//
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
+	// Replicas is the desired number of read‑only PiHole replicas.
+	//
+	// +kubebuilder:validation:Minimum=1
+	Replicas int32 `json:"replicas"`
+
+	// Ingress holds configuration for exposing the cluster via an Ingress.
+	//
+	// +optional
+	Ingress *IngressSpec `json:"ingress,omitempty"`
+
+	// Sync defines optional sync behaviour for the cluster.
+	//
+	// +optional
+	Sync *SyncSpec `json:"sync,omitempty"`
+
+	// Monitoring holds optional monitoring configuration.
+	//
+	// +optional
+	Monitoring *MonitoringSpec `json:"monitoring,omitempty"`
+
+	// ServiceType controls the Kubernetes Service type.
+	//
+	// +kubebuilder:validation:Enum=ClusterIP;LoadBalancer
+	// +kubebuilder:default=ClusterIP
+	ServiceType corev1.ServiceType `json:"serviceType,omitempty"`
+
+	Config *ConfigSpec `json:"config,omitempty"`
+
+	// Persistence holds PVC configuration for the read‑write PiHole pod.
+	//
+	// +optional
+	Persistence *PersistenceSpec `json:"persistence,omitempty"`
+}
+
+// IngressSpec defines the ingress configuration for a PiHoleCluster.
+type IngressSpec struct {
+	// Enabled indicates whether an Ingress resource should be created.
+	//
+	// +kubebuilder:validation:Required
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled"`
+
+	// Domain is the fully‑qualified domain that the Ingress will expose.
+	//
+	// +kubebuilder:validation:MinLength=1
+	Domain string `json:"domain,omitempty"`
+}
+
+// SyncSpec defines optional sync behaviour for a PiHoleCluster.
+type SyncSpec struct {
+	// Cron is a standard cron expression that determines when the sync job runs.
+	//
+	// +kubebuilder:validation:MinLength=1
+	Cron string `json:"cron"`
+
+	// Config indicates whether the operator should sync PiHole configuration files.
+	//
+	// +kubebuilder:validation:Required
+	// +kubebuilder:default=true
+	Config bool `json:"config"`
+
+	// AdLists indicates whether the operator should sync PiHole ad‑list files.
+	//
+	// +kubebuilder:validation:Required
+	// +kubebuilder:default=true
+	AdLists bool `json:"adlists"`
+}
+
+// MonitoringSpec defines optional monitoring configuration for a PiHoleCluster.
+type MonitoringSpec struct {
+	// Exporter contains the exporter configuration.
+	//
+	// +optional
+	Exporter *ExporterSpec `json:"exporter,omitempty"`
+
+	// PodMonitor contains the pod‑monitor configuration.
+	//
+	// +optional
+	PodMonitor *PodMonitorSpec `json:"podMonitor,omitempty"`
+}
+
+// ExporterSpec defines the exporter configuration.
+type ExporterSpec struct {
+	// Enabled indicates whether a Prometheus exporter should be deployed.
+	//
+	// +kubebuilder:validation:Required
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled"`
+}
+
+// PodMonitorSpec defines the pod‑monitor configuration.
+type PodMonitorSpec struct {
+	// Enabled indicates whether a Prometheus pod‑monitor should be deployed.
+	//
+	// +kubebuilder:validation:Required
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled"`
+}
+
+// ConfigSpec holds optional configuration knobs for PiHole.
+type ConfigSpec struct {
+	// APIPassword is the password used by the PiHole web‑server.
+	//
+	// +kubebuilder:validation:Required
+	APIPassword APIPassword `json:"apiPassword"`
+
+	// EnvVars is an arbitrary map of environment variables that will be
+	// injected into the PiHole container via a ConfigMap.
+	//
+	// +optional
+	EnvVars map[string]string `json:"envVars,omitempty"`
+}
+
+// APIPassword holds either a plain string or a reference to an existing secret.
+type APIPassword struct {
+	// Plain text password – only one of the two fields may be set.
+	//
+	// +kubebuilder:validation:MaxLength=128
+	Password string `json:"password,omitempty"`
+
+	// SecretRef points to a Secret that contains the password under key "password".
+	//
+	// +kubebuilder:validation:Xor=Password SecretRef
+	SecretRef *corev1.SecretKeySelector `json:"secretRef,omitempty"`
+}
+
+type PersistenceSpec struct {
+	// Size is the requested storage size, e.g. "10Gi".
+	//
+	// +kubebuilder:validation:Pattern=^[0-9]+[KMGTP]i?B$
+	Size string `json:"size"`
+
+	// StorageClassName is the name of a StorageClass to use.
+	//
+	// +optional
+	StorageClassName *string `json:"storageClassName,omitempty"`
+
+	// AccessModes lists the desired PV access modes.
+	//
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	AccessModes []corev1.PersistentVolumeAccessMode `json:"accessModes,omitempty"`
+}
+
+// PiHoleClusterStatus defines the observed state of PiHoleCluster.
+type PiHoleClusterStatus struct {
+	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
+	// Important: Run "make" to regenerate code after modifying this file
+
+	// For Kubernetes API conventions, see:
+	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+
+	// conditions represent the current state of the PiHoleCluster resource.
+	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
+	//
+	// Standard condition types include:
+	// - "Available": the resource is fully functional
+	// - "Progressing": the resource is being created or updated
+	// - "Degraded": the resource failed to reach or maintain its desired state
+	//
+	// The status of each condition is one of True, False, or Unknown.
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+
+// PiHoleCluster is the Schema for the piholeclusters API
+type PiHoleCluster struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// metadata is a standard object metadata
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+
+	// spec defines the desired state of PiHoleCluster
+	// +required
+	Spec PiHoleClusterSpec `json:"spec"`
+
+	// status defines the observed state of PiHoleCluster
+	// +optional
+	Status PiHoleClusterStatus `json:"status,omitempty,omitzero"`
+}
+
+// +kubebuilder:object:root=true
+
+// PiHoleClusterList contains a list of PiHoleCluster
+type PiHoleClusterList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []PiHoleCluster `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&PiHoleCluster{}, &PiHoleClusterList{})
+}

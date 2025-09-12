@@ -8,4 +8,17 @@ layout:
 - go.kubebuilder.io/v4
 projectName: pi-hole-operator
 repo: supporterino.de/pihole
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: supporterino.de
+  kind: PiHoleCluster
+  path: supporterino.de/pihole/api/v1alpha1
+  version: v1alpha1
+  webhooks:
+    defaulting: true
+    validation: true
+    webhookVersion: v1
 version: "3"
