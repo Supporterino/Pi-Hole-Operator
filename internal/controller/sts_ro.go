@@ -112,6 +112,21 @@ func (r *PiHoleClusterReconciler) ensureReadOnlySTS(ctx context.Context, piholec
 			})
 	}
 
+	// Resources
+	if !reflect.DeepEqual(piholecluster.Spec.Resources, corev1.ResourceRequirements{}) {
+		desired.Spec.Template.Spec.Containers[0].Resources = piholecluster.Spec.Resources
+	}
+
+	// PodSecurityContext – applied to the *entire* pod
+	if piholecluster.Spec.Security != nil && piholecluster.Spec.Security.PodSecurityContext != nil {
+		desired.Spec.Template.Spec.SecurityContext = piholecluster.Spec.Security.PodSecurityContext
+	}
+
+	// ContainerSecurityContext – applied to the PiHole container only
+	if piholecluster.Spec.Security != nil && piholecluster.Spec.Security.ContainerSecurityContext != nil {
+		desired.Spec.Template.Spec.Containers[0].SecurityContext = piholecluster.Spec.Security.ContainerSecurityContext
+	}
+
 	if err := ctrl.SetControllerReference(piholecluster, desired, r.Scheme); err != nil {
 		return err
 	}

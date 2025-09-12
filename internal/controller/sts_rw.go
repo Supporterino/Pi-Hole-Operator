@@ -147,6 +147,21 @@ func (r *PiHoleClusterReconciler) ensureReadWriteSTS(ctx context.Context, pihole
 			})
 	}
 
+	// Resources
+	if !reflect.DeepEqual(piholecluster.Spec.Resources, corev1.ResourceRequirements{}) {
+		desired.Spec.Template.Spec.Containers[0].Resources = piholecluster.Spec.Resources
+	}
+
+	// PodSecurityContext – applied to the *entire* pod
+	if piholecluster.Spec.Security != nil && piholecluster.Spec.Security.PodSecurityContext != nil {
+		desired.Spec.Template.Spec.SecurityContext = piholecluster.Spec.Security.PodSecurityContext
+	}
+
+	// ContainerSecurityContext – applied to the PiHole container only
+	if piholecluster.Spec.Security != nil && piholecluster.Spec.Security.ContainerSecurityContext != nil {
+		desired.Spec.Template.Spec.Containers[0].SecurityContext = piholecluster.Spec.Security.ContainerSecurityContext
+	}
+
 	// Ensure the StatefulSet is owned by the PiHoleCluster (controller-runtime will set OwnerReference)
 	if err := ctrl.SetControllerReference(piholecluster, desired, r.Scheme); err != nil {
 		return err

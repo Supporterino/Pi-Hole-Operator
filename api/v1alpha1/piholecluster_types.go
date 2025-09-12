@@ -60,6 +60,16 @@ type PiHoleClusterSpec struct {
 	//
 	// +optional
 	Persistence *PersistenceSpec `json:"persistence,omitempty"`
+
+	// Resources is a standard ResourceRequirements block (CPU/mem).
+	//
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// Security holds pod & container security contexts for PiHole.
+	//
+	// +optional
+	Security *SecuritySpec `json:"security,omitempty"`
 }
 
 // IngressSpec defines the ingress configuration for a PiHoleCluster.
@@ -116,6 +126,16 @@ type ExporterSpec struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:default=false
 	Enabled bool `json:"enabled"`
+
+	// Resources is a standard ResourceRequirements block (CPU/mem).
+	//
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// ContainerSecurityContext applies to the individual container.
+	//
+	// +optional
+	ContainerSecurityContext *corev1.SecurityContext `json:"containerSecurityContext,omitempty"`
 }
 
 // PodMonitorSpec defines the pod‑monitor configuration.
@@ -170,6 +190,19 @@ type PersistenceSpec struct {
 	// +optional
 	// +kubebuilder:validation:MinItems=1
 	AccessModes []corev1.PersistentVolumeAccessMode `json:"accessModes,omitempty"`
+}
+
+// SecuritySpec groups the two security context types
+type SecuritySpec struct {
+	// PodSecurityContext applies to the entire pod.
+	//
+	// +optional
+	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
+
+	// ContainerSecurityContext applies to the individual container.
+	//
+	// +optional
+	ContainerSecurityContext *corev1.SecurityContext `json:"containerSecurityContext,omitempty"`
 }
 
 // PiHoleClusterStatus defines the observed state of PiHoleCluster.
