@@ -6,11 +6,8 @@ import (
 	"reflect"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
 )
 
@@ -43,19 +40,9 @@ func (r *PiHoleClusterReconciler) ensureDNSService(ctx context.Context, piholecl
 			},
 		},
 	}
-
-	// Owner reference
-	if err := ctrl.SetControllerReference(piholecluster, desired, r.Scheme); err != nil {
-		return err
-	}
-
-	// Reconcile: create or update the Service
 	existing := &corev1.Service{}
-	err := r.Get(ctx, types.NamespacedName{Name: svcName, Namespace: piholecluster.Namespace}, existing)
-	if err != nil && apierrors.IsNotFound(err) {
-		return r.Create(ctx, desired)
-	}
-	if err != nil {
+
+	if err := r.create(ctx, existing, desired, svcName, piholecluster.Namespace, piholecluster); err != nil {
 		return err
 	}
 
