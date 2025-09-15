@@ -1007,6 +1007,15 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              lastError:
+                description: LastError holds the most recent error message that caused
+                  ResourcesReady to be false.
+                type: string
+              resourcesReady:
+                description: |-
+                  ResourcesReady is true when all operator‑managed resources (STS, PVC, Service,
+                  Ingress, PodMonitor, ConfigMap, Secret) exist and are in a healthy state.
+                type: boolean
             type: object
         required:
         - spec

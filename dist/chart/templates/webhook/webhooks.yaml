@@ -1,0 +1,67 @@
+{{- if .Values.webhook.enable }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: pi-hole-operator-mutating-webhook-configuration
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    {{- if .Values.certmanager.enable }}
+    cert-manager.io/inject-ca-from: "{{ $.Release.Namespace }}/serving-cert"
+    {{- end }}
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+webhooks:
+  - name: mpiholecluster-v1alpha1.kb.io
+    clientConfig:
+      service:
+        name: pi-hole-operator-webhook-service
+        namespace: {{ .Release.Namespace }}
+        path: /mutate-supporterino-de-v1alpha1-piholecluster
+    failurePolicy: Fail
+    sideEffects: None
+    admissionReviewVersions:
+      - v1
+    rules:
+      - operations:
+          - CREATE
+          - UPDATE
+        apiGroups:
+          - supporterino.de
+        apiVersions:
+          - v1alpha1
+        resources:
+          - piholeclusters
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: pi-hole-operator-validating-webhook-configuration
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    {{- if .Values.certmanager.enable }}
+    cert-manager.io/inject-ca-from: "{{ $.Release.Namespace }}/serving-cert"
+    {{- end }}
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+webhooks:
+  - name: vpiholecluster-v1alpha1.kb.io
+    clientConfig:
+      service:
+        name: pi-hole-operator-webhook-service
+        namespace: {{ .Release.Namespace }}
+        path: /validate-supporterino-de-v1alpha1-piholecluster
+    failurePolicy: Fail
+    sideEffects: None
+    admissionReviewVersions:
+      - v1
+    rules:
+      - operations:
+          - CREATE
+          - UPDATE
+        apiGroups:
+          - supporterino.de
+        apiVersions:
+          - v1alpha1
+        resources:
+          - piholeclusters
+{{- end }}

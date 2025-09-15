@@ -75,8 +75,9 @@ func (r *PiHoleClusterReconciler) ensurePiHolePVC(ctx context.Context, piHoleClu
 	}
 
 	// Update only the spec that can change (size, access modes, class)
-	if !reflect.DeepEqual(existing.Spec, desired.Spec) {
-		existing.Spec = desired.Spec
+	// Update only mutable field: Resources.Requests
+	if !reflect.DeepEqual(existing.Spec.Resources.Requests, desired.Spec.Resources.Requests) {
+		existing.Spec.Resources.Requests = desired.Spec.Resources.Requests
 		if err := r.Update(ctx, existing); err != nil {
 			return nil, err
 		}

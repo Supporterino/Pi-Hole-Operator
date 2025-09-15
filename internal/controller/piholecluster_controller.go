@@ -109,7 +109,19 @@ func (r *PiHoleClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// ------------------------------------------------------------------
-	// 8️⃣ All done – return success
+	// 8️⃣ Update the status field ResourcesReady
+	// ------------------------------------------------------------------
+	ready, err := r.resourcesReady(ctx, piholecluster)
+	var errMsg string
+	if err != nil {
+		errMsg = fmt.Sprintf("resourcesReady check failed: %v", err)
+	}
+	if err := r.updateStatus(ctx, piholecluster, ready, errMsg); err != nil {
+		return ctrl.Result{}, fmt.Errorf("update status: %w", err)
+	}
+
+	// ------------------------------------------------------------------
+	// 9️⃣ All done – return success
 	// ------------------------------------------------------------------
 	return ctrl.Result{}, nil
 }

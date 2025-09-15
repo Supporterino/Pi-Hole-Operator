@@ -207,12 +207,15 @@ type SecuritySpec struct {
 
 // PiHoleClusterStatus defines the observed state of PiHoleCluster.
 type PiHoleClusterStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
+	// ResourcesReady is true when all operator‑managed resources (STS, PVC, Service,
+	// Ingress, PodMonitor, ConfigMap, Secret) exist and are in a healthy state.
+	//
+	// +optional
+	ResourcesReady bool `json:"resourcesReady,omitempty"`
+	// LastError holds the most recent error message that caused ResourcesReady to be false.
+	//
+	// +optional
+	LastError string `json:"lastError,omitempty"`
 	// conditions represent the current state of the PiHoleCluster resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
 	//

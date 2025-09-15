@@ -6,4 +6,13 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: piholecluster-sample
 spec:
-  # TODO(user): Add fields here
+  name: primary
+  replicas: 2
+  sync:
+    cron: 0 0 * * *
+  monitoring:
+    exporter:
+      enabled: true
+  config:
+    apiPassword:
+      password: 123456abc

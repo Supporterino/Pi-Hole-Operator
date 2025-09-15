@@ -6,6 +6,8 @@ cliVersion: 4.8.0
 domain: supporterino.de
 layout:
 - go.kubebuilder.io/v4
+plugins:
+  helm.kubebuilder.io/v1-alpha: {}
 projectName: pi-hole-operator
 repo: supporterino.de/pihole
 resources:
