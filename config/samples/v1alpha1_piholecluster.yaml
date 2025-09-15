@@ -13,6 +13,30 @@ spec:
   monitoring:
     exporter:
       enabled: true
+      resources:
+        requests:
+          memory: 128Mi
+          cpu: 100m
   config:
     apiPassword:
       password: 123456abc
+    env:
+      TZ: Europe/Berlin
+      FTLCONF_dns_upstreams: 10.2.0.1
+      FTLCONF_dns_revServers: true,10.1.0.0/16,10.1.0.1#53,local
+      FTLCONF_webserver_interface_theme: default-dark
+      FTLCONF_dns_listeningMode: all
+      FTLCONF_dns_cache_size: "10000"
+      FTLCONF_files_database: /etc/pihole/db/pihole-FTL.db
+      FTLCONF_files_gravity: /etc/pihole/db/gravity.db
+      FTLCONF_files_macvendor: /etc/pihole/db/macvendor.db
+      FTLCONF_dns_rateLimit_count: "100000"
+      FTLCONF_dns_rateLimit_interval: "10"
+      FTLCONF_dns_ignoreLocalhost: "false"
+      FTLCONF_dns_domain: local
+      FTLCONF_misc_dnsmasq_lines: no-0x20-encode;dns-forward-max=500
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+

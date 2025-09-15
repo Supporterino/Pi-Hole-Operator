@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -77,6 +78,16 @@ func (r *PiHoleClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// 4️⃣ Create / update the read‑only StatefulSet (if replicas > 0)
 	// ------------------------------------------------------------------
 	if piholecluster.Spec.Sync != nil && piholecluster.Spec.Replicas > 0 {
+		// Wait until the RW pod is ready before creating/updating RO
+		ready, err := r.isRWPodReady(ctx, piholecluster)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("checking RW pod readiness: %w", err)
+		}
+		if !ready {
+			// Re‑queue after a short delay so we don't hammer the API
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		}
+
 		if err := r.ensureReadOnlySTS(ctx, piholecluster); err != nil {
 			return ctrl.Result{}, fmt.Errorf("ensureReadOnlySTS: %w", err)
 		}

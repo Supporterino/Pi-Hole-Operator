@@ -76,7 +76,7 @@ spec:
                         type: object
                         x-kubernetes-map-type: atomic
                     type: object
-                  envVars:
+                  env:
                     additionalProperties:
                       type: string
                     description: |-

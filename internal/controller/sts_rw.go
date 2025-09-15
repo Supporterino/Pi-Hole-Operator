@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
 )
@@ -184,4 +185,38 @@ func (r *PiHoleClusterReconciler) ensureReadWriteSTS(ctx context.Context, pihole
 		return r.Update(ctx, existing)
 	}
 	return nil
+}
+
+// isRWPodReady returns true when the RW stateful‑set has at least one pod that reports Ready:true.
+func (r *PiHoleClusterReconciler) isRWPodReady(ctx context.Context, piholecluster *supporterinodev1alpha1.PiHoleCluster) (bool, error) {
+	podList := &corev1.PodList{}
+	if err := r.List(ctx, podList,
+		client.InNamespace(piholecluster.Namespace),
+		client.MatchingLabels{"app.kubernetes.io/name": "pihole",
+			"app.kubernetes.io/instance":  piholecluster.Name,
+			"supporterino.de/pihole-role": "readwrite"},
+	); err != nil {
+		return false, fmt.Errorf("list RW pods: %w", err)
+	}
+
+	if len(podList.Items) == 0 {
+		return false, nil // no pod yet
+	}
+
+	for _, p := range podList.Items {
+		if isPodReady(&p) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// isPodReady checks the pod status conditions for Ready=true.
+func isPodReady(p *corev1.Pod) bool {
+	for _, cond := range p.Status.Conditions {
+		if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }

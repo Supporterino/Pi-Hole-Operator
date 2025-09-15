@@ -158,7 +158,7 @@ type ConfigSpec struct {
 	// injected into the PiHole container via a ConfigMap.
 	//
 	// +optional
-	EnvVars map[string]string `json:"envVars,omitempty"`
+	EnvVars map[string]string `json:"env,omitempty"`
 }
 
 // APIPassword holds either a plain string or a reference to an existing secret.
