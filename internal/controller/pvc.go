@@ -11,13 +11,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
-
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
 )
 
-// controllers/pvc.go   (modified)
-
 func (r *PiHoleClusterReconciler) ensurePiHolePVC(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (*corev1.PersistentVolumeClaim, error) {
+	log := logf.FromContext(ctx)
+
 	pvcName := fmt.Sprintf("%s-data", piHoleCluster.Name)
 
 	// Default values
@@ -66,11 +66,14 @@ func (r *PiHoleClusterReconciler) ensurePiHolePVC(ctx context.Context, piHoleClu
 	err := r.Get(ctx, types.NamespacedName{Name: pvcName, Namespace: piHoleCluster.Namespace}, existing)
 	if err != nil && apierrors.IsNotFound(err) {
 		if err := r.Create(ctx, desired); err != nil {
+			log.Error(err, "Failed to create PVC")
 			return nil, err
 		}
+		log.V(0).Info("PVC created", "name", pvcName)
 		return desired, nil
 	}
 	if err != nil {
+		log.V(1).Info("Error while fetching PVC", "err:", err, "pvcName:", pvcName)
 		return nil, err
 	}
 
@@ -79,6 +82,7 @@ func (r *PiHoleClusterReconciler) ensurePiHolePVC(ctx context.Context, piHoleClu
 	if !reflect.DeepEqual(existing.Spec.Resources.Requests, desired.Spec.Resources.Requests) {
 		existing.Spec.Resources.Requests = desired.Spec.Resources.Requests
 		if err := r.Update(ctx, existing); err != nil {
+			log.Error(err, "Failed to update PVC")
 			return nil, err
 		}
 	}
