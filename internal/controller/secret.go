@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
 )
 
@@ -78,4 +79,36 @@ func (r *PiHoleClusterReconciler) ensureAPISecret(ctx context.Context, piHoleClu
 		}
 	}
 	return existing, nil
+}
+
+// getAPISecret reads the Kubernetes Secret that holds the Pi‑hole password.
+// The secret name is derived from the Cluster CR (`{name}-api-secret`).
+// It returns the *raw* data map – callers can pick out whatever keys they need.
+func (r *PiHoleClusterReconciler) getAPISecret(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (*corev1.Secret, error) {
+	if piHoleCluster.Spec.Config.APIPassword.SecretRef != nil {
+		secret := &corev1.Secret{}
+		if err := r.Get(ctx, types.NamespacedName{
+			Namespace: piHoleCluster.Namespace,
+			Name:      piHoleCluster.Spec.Config.APIPassword.SecretRef.Name,
+		}, secret); err != nil {
+			return nil, fmt.Errorf("failed to read referenced secret: %w", err)
+		}
+
+		// Verify the key exists
+		if _, ok := secret.Data[piHoleCluster.Spec.Config.APIPassword.SecretRef.Key]; !ok {
+			return nil, fmt.Errorf("key %q not found in secret %s/%s",
+				piHoleCluster.Spec.Config.APIPassword.SecretRef.Key,
+				secret.Namespace, secret.Name)
+		}
+		return secret, nil // just pass it through
+	}
+
+	secretName := fmt.Sprintf("%s-api-secret", piHoleCluster.Name)
+
+	secret := &corev1.Secret{}
+	err := r.Get(ctx, client.ObjectKey{Namespace: piHoleCluster.Namespace, Name: secretName}, secret)
+	if err != nil {
+		return nil, fmt.Errorf("reading API secret %s/%s: %w", piHoleCluster.Namespace, secretName, err)
+	}
+	return secret, nil
 }

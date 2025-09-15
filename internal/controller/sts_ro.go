@@ -11,7 +11,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
+	"supporterino.de/pihole/internal/utils"
 )
 
 // createReadOnlySTS creates or updates the read‑only StatefulSet.
@@ -146,4 +148,28 @@ func (r *PiHoleClusterReconciler) ensureReadOnlySTS(ctx context.Context, piholec
 		return r.Update(ctx, existing)
 	}
 	return nil
+}
+
+// isRWPodReady returns true when the RW stateful‑set has at least one pod that reports Ready:true.
+func (r *PiHoleClusterReconciler) areROPodsReady(ctx context.Context, piholecluster *supporterinodev1alpha1.PiHoleCluster) (bool, error) {
+	podList := &corev1.PodList{}
+	if err := r.List(ctx, podList,
+		client.InNamespace(piholecluster.Namespace),
+		client.MatchingLabels{"app.kubernetes.io/name": "pihole",
+			"app.kubernetes.io/instance":  piholecluster.Name,
+			"supporterino.de/pihole-role": "readonly"},
+	); err != nil {
+		return false, fmt.Errorf("list RO pods: %w", err)
+	}
+
+	if len(podList.Items) == 0 {
+		return false, nil // no pod yet
+	}
+
+	for _, p := range podList.Items {
+		if utils.IsPodReady(&p) {
+			return true, nil
+		}
+	}
+	return false, nil
 }

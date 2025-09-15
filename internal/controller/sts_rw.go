@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"supporterino.de/pihole/internal/utils"
 
 	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
 )
@@ -204,19 +205,9 @@ func (r *PiHoleClusterReconciler) isRWPodReady(ctx context.Context, piholecluste
 	}
 
 	for _, p := range podList.Items {
-		if isPodReady(&p) {
+		if utils.IsPodReady(&p) {
 			return true, nil
 		}
 	}
 	return false, nil
-}
-
-// isPodReady checks the pod status conditions for Ready=true.
-func isPodReady(p *corev1.Pod) bool {
-	for _, cond := range p.Status.Conditions {
-		if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
-			return true
-		}
-	}
-	return false
 }

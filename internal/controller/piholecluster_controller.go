@@ -25,13 +25,25 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
+	"supporterino.de/pihole/internal/pihole_api"
+	"supporterino.de/pihole/internal/utils"
+)
+
+const (
+	finalizerName = "piholecluster.finalizers.supporterino.de"
 )
 
 // PiHoleClusterReconciler reconciles a PiHoleCluster object
 type PiHoleClusterReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	// One APIClient per pod (keyed by the pod name)
+	ApiClients map[string]*pihole_api.APIClient
+
+	currentClusterName string
 }
 
 // +kubebuilder:rbac:groups=supporterino.de,resources=piholeclusters,verbs=get;list;watch;create;update;patch;delete
@@ -50,6 +62,17 @@ func (r *PiHoleClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 		return ctrl.Result{}, fmt.Errorf("failed to get PiHoleCluster: %w", err)
 	}
+
+	if !utils.ContainsString(piholecluster.Finalizers, finalizerName) {
+		piholecluster.Finalizers = append(piholecluster.Finalizers, finalizerName)
+		if err := r.Update(ctx, piholecluster); err != nil {
+			return ctrl.Result{}, fmt.Errorf("adding finalizer: %w", err)
+		}
+		// Re‑queue to run the reconcile again with the finalizer in place
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	r.currentClusterName = piholecluster.Name
 
 	// ------------------------------------------------------------------
 	// 1️⃣ Ensure the API‑password secret is available
@@ -90,6 +113,25 @@ func (r *PiHoleClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 		if err := r.ensureReadOnlySTS(ctx, piholecluster); err != nil {
 			return ctrl.Result{}, fmt.Errorf("ensureReadOnlySTS: %w", err)
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// 4️⃣ Create / update the read‑only StatefulSet (if replicas > 0)
+	// ------------------------------------------------------------------
+	if piholecluster.Spec.Sync != nil && piholecluster.Spec.Replicas > 0 {
+		// Wait until the RW pod is ready before creating/updating RO
+		ready, err := r.areROPodsReady(ctx, piholecluster)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("checking RO pod readiness: %w", err)
+		}
+		if !ready {
+			// Re‑queue after a short delay so we don't hammer the API
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		}
+
+		if err := r.syncAPIClients(ctx, piholecluster); err != nil {
+			return ctrl.Result{}, fmt.Errorf("sync API clients: %w", err)
 		}
 	}
 
@@ -135,6 +177,31 @@ func (r *PiHoleClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// 9️⃣ All done – return success
 	// ------------------------------------------------------------------
 	return ctrl.Result{}, nil
+}
+
+func (r *PiHoleClusterReconciler) handleDelete(ctx context.Context, cluster *supporterinodev1alpha1.PiHoleCluster) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+
+	// 1️⃣ Close all API clients – this will drop idle connections
+	for name, cli := range r.ApiClients {
+		cli.Close()
+		log.Info("closed API client for pod %s", name)
+	}
+	r.ApiClients = make(map[string]*pihole_api.APIClient)
+
+	// 3️⃣ Remove the finalizer so Kubernetes can actually delete the CR
+	cluster.Finalizers = utils.RemoveString(cluster.Finalizers, finalizerName)
+	if err := r.Update(ctx, cluster); err != nil {
+		return ctrl.Result{}, fmt.Errorf("removing finalizer: %w", err)
+	}
+
+	// Re‑queue to allow the delete to finish
+	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+}
+
+func (r *PiHoleClusterReconciler) clusterName() string {
+	// You can store the name in a field during Reconcile or pass it as an argument.
+	return r.currentClusterName // set this at the start of Reconcile
 }
 
 // SetupWithManager sets up the controller with the Manager.
