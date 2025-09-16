@@ -1007,15 +1007,46 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              configSynced:
+                description: |-
+                  ConfigSynced indicates that the latest configuration has been
+                  successfully pushed to all read‑only replicas.
+                type: boolean
               lastError:
                 description: LastError holds the most recent error message that caused
                   ResourcesReady to be false.
+                type: string
+              lastSyncTime:
+                description: |-
+                  LastSyncTime records the last time a sync was performed.
+                  It is used to evaluate the cron schedule.
+                format: date-time
                 type: string
               resourcesReady:
                 description: |-
                   ResourcesReady is true when all operator‑managed resources (STS, PVC, Service,
                   Ingress, PodMonitor, ConfigMap, Secret) exist and are in a healthy state.
                 type: boolean
+              syncedPods:
+                description: |-
+                  SyncedPods lists the names of all RO pods that have already
+                  received the latest configuration.  A pod that is not listed
+                  will trigger a sync when it becomes ready.
+                items:
+                  properties:
+                    name:
+                      type: string
+                    uid:
+                      description: |-
+                        UID is a type that holds unique ID values, including UUIDs.  Because we
+                        don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                        intent and helps make sure that UIDs and names do not get conflated.
+                      type: string
+                  required:
+                    - name
+                    - uid
+                  type: object
+                type: array
             type: object
         required:
         - spec

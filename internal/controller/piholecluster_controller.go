@@ -21,7 +21,9 @@ import (
 	"fmt"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,6 +52,7 @@ type PiHoleClusterReconciler struct {
 // +kubebuilder:rbac:groups=supporterino.de,resources=piholeclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=supporterino.de,resources=piholeclusters/finalizers,verbs=update
 func (r *PiHoleClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
 	// ------------------------------------------------------------------
 	// 0️⃣ Fetch the PiHoleCluster instance
 	// ------------------------------------------------------------------
@@ -161,6 +164,91 @@ func (r *PiHoleClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, fmt.Errorf("ensureDNSService: %w", err)
 	}
 
+	// ------------------------------------------------------------
+	//  Sync configuration – only when a new RO pod appears or the cron matches.
+	// ------------------------------------------------------------
+	if piholecluster.Spec.Sync != nil && piholecluster.Spec.Sync.Config {
+		// 1️⃣ Build a map of existing RO pods (name → pod object)
+		podList := &corev1.PodList{}
+		if err := r.List(ctx, podList,
+			client.InNamespace(piholecluster.Namespace),
+			client.MatchingLabels(map[string]string{
+				"app.kubernetes.io/name": fmt.Sprintf("%s-ro", piholecluster.Name),
+			})); err != nil {
+			return ctrl.Result{}, fmt.Errorf("listing RO pods: %w", err)
+		}
+		podMap := make(map[string]*corev1.Pod)
+		for i, p := range podList.Items {
+			// capture pointer to the slice element
+			podMap[p.Name] = &podList.Items[i]
+		}
+
+		// 2️⃣ Detect which RO pods need a sync
+		var podsNeedingSync []string // names of pods that are ready but not yet synced
+		for podName, pod := range podMap {
+			if !r.isPodSynced(piholecluster, podName, pod.UID) {
+				podsNeedingSync = append(podsNeedingSync, podName)
+			}
+		}
+
+		// 3️⃣ Decide if we should sync now
+		runSync := len(podsNeedingSync) > 0 || r.shouldSyncNow(piholecluster.Spec.Sync.Cron, piholecluster.Status.LastSyncTime)
+
+		if runSync {
+			log.Info(fmt.Sprintf("running config sync (cron=%q, newPods=%d)", *piholecluster.Spec.Sync, len(podsNeedingSync)))
+
+			// 4️⃣ Get the RW client
+			rwClient, err := r.ReadWriteAPIClient()
+			if err != nil {
+				log.V(0).Info(fmt.Sprintf("read‑write client not ready: %v", err))
+				return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+			}
+
+			// 5️⃣ Download the binary from RW
+			ctxSync, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			data, err := rwClient.DownloadTeleporter(ctxSync)
+			if err != nil {
+				log.Error(err, "download teleporter.")
+				return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+			}
+
+			// 6️⃣ Upload to every RO pod that needs it
+			roClients, err := r.ReadOnlyAPIClients()
+			if err != nil {
+				log.Error(err, "listing read‑only clients: %v")
+				// Decide whether to requeue – here we just bail out and let the next reconcile try again
+				return ctrl.Result{}, nil
+			}
+
+			for _, roClient := range roClients {
+				// … your upload logic …
+				// Find the pod object to get its UID
+				pod, ok := podMap[roClient.BaseURL] // BaseURL was set to the pod name in syncAPIClients()
+				if !ok {
+					log.V(0).Info(fmt.Sprintf("cannot find pod %s in list – skipping", roClient.BaseURL))
+					continue
+				}
+				if err := roClient.UploadTeleporter(ctxSync, data); err != nil {
+					log.Error(err, "upload to %s failed.", "baseURL", roClient.BaseURL)
+				} else {
+					// Mark this pod as synced
+					r.addPodSynced(piholecluster, pod.Name, pod.UID)
+					log.Info(fmt.Sprintf("teleporter sync succeeded for %s", roClient.BaseURL))
+				}
+			}
+
+			// 7️⃣ Update status
+			piholecluster.Status.ConfigSynced = true
+			piholecluster.Status.LastSyncTime = metav1.Now()
+			if err := r.Status().Update(ctx, piholecluster); err != nil {
+				log.V(1).Info(fmt.Sprintf("failed to update sync status: %v", err))
+			}
+		} else {
+			log.Info(fmt.Sprintf("sync not needed (cron=%q, newPods=%d)", *piholecluster.Spec.Sync, len(podsNeedingSync)))
+		}
+	}
+
 	// ------------------------------------------------------------------
 	// 8️⃣ Update the status field ResourcesReady
 	// ------------------------------------------------------------------
@@ -200,8 +288,7 @@ func (r *PiHoleClusterReconciler) handleDelete(ctx context.Context, cluster *sup
 }
 
 func (r *PiHoleClusterReconciler) clusterName() string {
-	// You can store the name in a field during Reconcile or pass it as an argument.
-	return r.currentClusterName // set this at the start of Reconcile
+	return r.currentClusterName
 }
 
 // SetupWithManager sets up the controller with the Manager.

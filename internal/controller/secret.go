@@ -103,7 +103,7 @@ func (r *PiHoleClusterReconciler) getAPISecret(ctx context.Context, piHoleCluste
 		return secret, nil // just pass it through
 	}
 
-	secretName := fmt.Sprintf("%s-api-secret", piHoleCluster.Name)
+	secretName := fmt.Sprintf("%s-api-password", piHoleCluster.Name)
 
 	secret := &corev1.Secret{}
 	err := r.Get(ctx, client.ObjectKey{Namespace: piHoleCluster.Namespace, Name: secretName}, secret)

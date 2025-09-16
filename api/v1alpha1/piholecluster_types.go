@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // PiHoleClusterSpec defines the desired state of PiHoleCluster
@@ -212,6 +213,18 @@ type PiHoleClusterStatus struct {
 	//
 	// +optional
 	ResourcesReady bool `json:"resourcesReady,omitempty"`
+	// ConfigSynced indicates that the latest configuration has been
+	// successfully pushed to all read‑only replicas.
+	//
+	// +kubebuilder:validation:Optional
+	ConfigSynced bool `json:"configSynced,omitempty"`
+	// SyncedPods lists the names of all RO pods that have already
+	// received the latest configuration.  A pod that is not listed
+	// will trigger a sync when it becomes ready.
+	SyncedPods []SyncedPod `json:"syncedPods,omitempty"`
+	// LastSyncTime records the last time a sync was performed.
+	// It is used to evaluate the cron schedule.
+	LastSyncTime metav1.Time `json:"lastSyncTime,omitempty"`
 	// LastError holds the most recent error message that caused ResourcesReady to be false.
 	//
 	// +optional
@@ -229,6 +242,11 @@ type PiHoleClusterStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+type SyncedPod struct {
+	Name string    `json:"name"`
+	UID  types.UID `json:"uid"` // the pod’s unique identifier
 }
 
 // +kubebuilder:object:root=true

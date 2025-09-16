@@ -34,7 +34,7 @@ type authResponse struct {
 }
 
 const (
-	MaxResponseSize = 1 * 1024 * 1024 // 1MB (for DoS protection)
+	MaxResponseSize = 25 * 1024 * 1024 // 25MB (for DoS protection)
 )
 
 // NewAPIClient initializes and returns a new APIClient.
@@ -68,7 +68,7 @@ func (c *APIClient) Authenticate() error {
 		return fmt.Errorf("failed to marshal authentication payload: %w", err)
 	}
 
-	c.logger.V(1).Info("Authenticating to %s", c.BaseURL)
+	c.logger.V(1).Info(fmt.Sprintf("Authenticating to %s", c.BaseURL))
 
 	resp, err := c.Client.Post(url, "application/json", bytes.NewBuffer(jsonPayload))
 	if err != nil {
@@ -77,7 +77,7 @@ func (c *APIClient) Authenticate() error {
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			c.logger.V(0).Info("Failed to close response body: %v", err)
+			c.logger.Error(err, "Failed to close response body.")
 		}
 	}()
 
@@ -129,7 +129,7 @@ func (c *APIClient) FetchData(endpoint string, result interface{}) error {
 	}
 
 	url := fmt.Sprintf("%s%s", c.BaseURL, endpoint)
-	c.logger.V(1).Info("Fetching data from %s", url)
+	c.logger.V(1).Info(fmt.Sprintf("Fetching data from %s", url))
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -150,7 +150,7 @@ func (c *APIClient) FetchData(endpoint string, result interface{}) error {
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			c.logger.V(0).Info("Failed to close response body: %v", err)
+			c.logger.Error(err, "Failed to close response body.")
 		}
 	}()
 
@@ -168,6 +168,79 @@ func (c *APIClient) FetchData(endpoint string, result interface{}) error {
 	}
 
 	c.logger.V(1).Info("Successfully fetched data from endpoint: %s", endpoint)
+	return nil
+}
+
+// DownloadTeleporter fetches the binary from /api/teleporter on the RW pod.
+// It returns a byte slice that callers can forward to other pods.
+func (c *APIClient) DownloadTeleporter(ctx context.Context) ([]byte, error) {
+	if err := c.ensureAuth(); err != nil {
+		return nil, fmt.Errorf("auth: %w", err)
+	}
+
+	url := c.BaseURL + "/api/teleporter"
+	c.logger.V(1).Info(fmt.Sprintf("GET teleporter from %s", url))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	req.Header.Set("X-FTL-SID", c.sessionID)
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("GET teleporter: %w", err)
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			c.logger.Error(err, "Failed to close response body.")
+		}
+	}(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GET teleporter status %d", resp.StatusCode)
+	}
+
+	// Read the whole body – it is a binary file, so no limit needed.
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read teleporter body: %w", err)
+	}
+	return data, nil
+}
+
+// UploadTeleporter posts the binary to /api/teleporter on a read‑only pod.
+// The caller provides the byte slice that was downloaded from the RW replica.
+func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
+	if err := c.ensureAuth(); err != nil {
+		return fmt.Errorf("auth: %w", err)
+	}
+
+	url := c.BaseURL + "/api/teleporter"
+	c.logger.V(1).Info(fmt.Sprintf("POST teleporter to %s", url))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("new request: %w", err)
+	}
+	req.Header.Set("X-FTL-SID", c.sessionID)
+	req.Header.Set("Content-Type", "application/octet-stream")
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return fmt.Errorf("POST teleporter: %w", err)
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			c.logger.Error(err, "Failed to close response body.")
+		}
+	}(resp.Body)
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("POST teleporter status %d", resp.StatusCode)
+	}
 	return nil
 }
 

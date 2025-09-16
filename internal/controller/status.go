@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
 )
 
@@ -112,4 +113,14 @@ func (r *PiHoleClusterReconciler) updateStatus(ctx context.Context, piholecluste
 	}
 
 	return nil
+}
+
+func (r *PiHoleClusterReconciler) updateConfigSynced(ctx context.Context, cluster *supporterinodev1alpha1.PiHoleCluster, synced bool) error {
+	// Fetch the latest version to avoid race conditions
+	if err := r.Get(ctx, client.ObjectKeyFromObject(cluster), cluster); err != nil {
+		return fmt.Errorf("refetching CR for status update: %w", err)
+	}
+
+	cluster.Status.ConfigSynced = synced
+	return r.Status().Update(ctx, cluster)
 }
