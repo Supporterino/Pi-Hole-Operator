@@ -51,6 +51,13 @@ type PiHoleClusterReconciler struct {
 // +kubebuilder:rbac:groups=supporterino.de,resources=piholeclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=supporterino.de,resources=piholeclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=supporterino.de,resources=piholeclusters/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;delete
+// +kubebuilder:rbac:groups="apps",resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="networking.k8s.io",resources=ingresses,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="monitoring.coreos.com",resources=podmonitors,verbs=get;list;watch;create;update;patch;delete
 func (r *PiHoleClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	// ------------------------------------------------------------------
@@ -195,7 +202,7 @@ func (r *PiHoleClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		runSync := len(podsNeedingSync) > 0 || r.shouldSyncNow(piholecluster.Spec.Sync.Cron, piholecluster.Status.LastSyncTime)
 
 		if runSync {
-			log.Info(fmt.Sprintf("running config sync (cron=%q, newPods=%d)", *piholecluster.Spec.Sync, len(podsNeedingSync)))
+			log.Info(fmt.Sprintf("running config sync (cron=%q, newPods=%d)", piholecluster.Spec.Sync.Cron, len(podsNeedingSync)))
 
 			// 4️⃣ Get the RW client
 			rwClient, err := r.ReadWriteAPIClient()
@@ -245,7 +252,7 @@ func (r *PiHoleClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				log.V(1).Info(fmt.Sprintf("failed to update sync status: %v", err))
 			}
 		} else {
-			log.Info(fmt.Sprintf("sync not needed (cron=%q, newPods=%d)", *piholecluster.Spec.Sync, len(podsNeedingSync)))
+			log.Info(fmt.Sprintf("sync not needed (cron=%q, newPods=%d)", piholecluster.Spec.Sync.Cron, len(podsNeedingSync)))
 		}
 	}
 
