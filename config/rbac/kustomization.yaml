@@ -25,7 +25,5 @@ resources:
 - piholecluster_admin_role.yaml
 - piholecluster_editor_role.yaml
 - piholecluster_viewer_role.yaml
-- pihole-cluster_admin_role.yaml
-- pihole-cluster_editor_role.yaml
-- pihole-cluster_viewer_role.yaml
+
 
