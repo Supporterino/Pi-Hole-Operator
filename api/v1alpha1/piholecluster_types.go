@@ -24,11 +24,6 @@ import (
 
 // PiHoleClusterSpec defines the desired state of PiHoleCluster
 type PiHoleClusterSpec struct {
-	// Name is a human‑readable identifier for the cluster.
-	//
-	// +kubebuilder:validation:MinLength=1
-	Name string `json:"name"`
-
 	// Replicas is the desired number of read‑only PiHole replicas.
 	//
 	// +kubebuilder:validation:Minimum=1

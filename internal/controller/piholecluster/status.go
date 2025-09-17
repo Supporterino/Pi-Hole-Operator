@@ -1,4 +1,4 @@
-package controller
+package piholecluster
 
 import (
 	"context"

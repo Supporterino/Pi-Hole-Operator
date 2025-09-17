@@ -382,10 +382,6 @@ spec:
                     - enabled
                     type: object
                 type: object
-              name:
-                description: Name is a human‑readable identifier for the cluster.
-                minLength: 1
-                type: string
               persistence:
                 description: Persistence holds PVC configuration for the read‑write
                   PiHole pod.
@@ -932,7 +928,6 @@ spec:
                 - cron
                 type: object
             required:
-            - name
             - replicas
             type: object
           status:
