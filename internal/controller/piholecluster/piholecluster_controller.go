@@ -47,18 +47,16 @@ type PiHoleClusterReconciler struct {
 
 // RBAC permissions -------------------------------------------------------
 
-/*
-+kubebuilder:rbac:groups=supporterino.de,resources=piholeclusters,verbs=get;list;watch;create;update;patch;delete
-+kubebuilder:rbac:groups=supporterino.de,resources=piholeclusters/status,verbs=get;update;patch
-+kubebuilder:rbac:groups=supporterino.de,resources=piholeclusters/finalizers,verbs=update
-+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;delete
-+kubebuilder:rbac:groups="apps",resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
-+kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
-+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
-+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
-+kubebuilder:rbac:groups="networking.k8s.io",resources=ingresses,verbs=get;list;watch;create;update;patch;delete
-+kubebuilder:rbac:groups="monitoring.coreos.com",resources=podmonitors,verbs=get;list;watch;create;update;patch;delete
-*/
+//+kubebuilder:rbac:groups=supporterino.de,resources=piholeclusters,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=supporterino.de,resources=piholeclusters/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=supporterino.de,resources=piholeclusters/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;delete
+//+kubebuilder:rbac:groups="apps",resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="networking.k8s.io",resources=ingresses,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="monitoring.coreos.com",resources=podmonitors,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile ----------------------------------------------------------------
 
