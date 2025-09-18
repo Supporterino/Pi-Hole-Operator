@@ -6,7 +6,6 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: piholecluster-sample
 spec:
-  name: primary
   replicas: 2
   sync:
     cron: 0 0 * * *

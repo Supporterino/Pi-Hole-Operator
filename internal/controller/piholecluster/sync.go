@@ -24,27 +24,30 @@ var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month 
 // Configuration sync
 // ---------------------------------------------------------------------------
 
-func (r *PiHoleClusterReconciler) performConfigSync(ctx context.Context, cluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (r *Reconciler) performConfigSync(ctx context.Context, cluster *supporterinodev1alpha1.PiHoleCluster) error {
 	log := logf.FromContext(ctx)
 
 	// 1️⃣ Build a map of existing RO pods
 	podList := &corev1.PodList{}
-	if err := r.List(ctx, podList,
-		client.InNamespace(cluster.Namespace),
-		client.MatchingLabels(map[string]string{
-			"app.kubernetes.io/name": fmt.Sprintf("%s-ro", cluster.Name),
-		})); err != nil {
+	if err := r.List(ctx, podList, client.InNamespace(cluster.Namespace), client.MatchingLabels(map[string]string{
+		"app.kubernetes.io/instance":  cluster.Name,
+		"app.kubernetes.io/name":      "pihole",
+		"supporterino.de/pihole-role": "readonly",
+	})); err != nil {
 		return fmt.Errorf("listing RO pods: %w", err)
 	}
 	podMap := make(map[string]*corev1.Pod)
 	for i := range podList.Items {
-		podMap[podList.Items[i].Name] = &podList.Items[i]
+		//podMap[podList.Items[i].Name] = &podList.Items[i]
+		podMap[fmt.Sprintf("http://%s", podList.Items[i].Status.PodIP)] = &podList.Items[i]
 	}
 
 	// 2️⃣ Detect pods that need a sync
 	var podsNeedingSync []string
+	log.V(1).Info("syncing pods", "count", len(podMap))
 	for podName, pod := range podMap {
-		if !r.isPodSynced(cluster, podName, pod.UID) {
+		log.V(1).Info("syncing pod", "pod", pod.Name, "uid", pod.GetUID())
+		if !r.isPodSynced(cluster, pod.Name, pod.GetUID()) {
 			podsNeedingSync = append(podsNeedingSync, podName)
 		}
 	}
@@ -107,14 +110,12 @@ func (r *PiHoleClusterReconciler) performConfigSync(ctx context.Context, cluster
 // API client management
 // ---------------------------------------------------------------------------
 
-func (r *PiHoleClusterReconciler) syncAPIClients(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (r *Reconciler) syncAPIClients(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
 	// 1️⃣ List all pods that belong to the StatefulSet
 	podList := &corev1.PodList{}
-	if err := r.List(ctx, podList,
-		client.InNamespace(piHoleCluster.Namespace),
-		client.MatchingLabels(map[string]string{
-			"app.kubernetes.io/name": "pihole",
-		})); err != nil {
+	if err := r.List(ctx, podList, client.InNamespace(piHoleCluster.Namespace), client.MatchingLabels(map[string]string{
+		"app.kubernetes.io/name": "pihole",
+	})); err != nil {
 		return fmt.Errorf("listing pihole pods: %w", err)
 	}
 
@@ -136,13 +137,9 @@ func (r *PiHoleClusterReconciler) syncAPIClients(ctx context.Context, piHoleClus
 		}
 		password := string(secret.Data["password"])
 
-		apiClient := pihole_api.NewAPIClient(
-			baseURL,
-			password,
-			10*time.Second, // request timeout
-			true,           // skipTLSVerification – set to true if you use self‑signed certs
-			ctx,
-		)
+		apiClient := pihole_api.NewAPIClient(baseURL, password, 10*time.Second, // request timeout
+			true, // skipTLSVerification – set to true if you use self‑signed certs
+			ctx)
 
 		r.ApiClients[p.Name] = apiClient
 	}
@@ -165,7 +162,7 @@ func (r *PiHoleClusterReconciler) syncAPIClients(ctx context.Context, piHoleClus
 }
 
 // Read‑write client (the RW pod is always <stsName-rw>-0)
-func (r *PiHoleClusterReconciler) ReadWriteAPIClient() (*pihole_api.APIClient, error) {
+func (r *Reconciler) ReadWriteAPIClient() (*pihole_api.APIClient, error) {
 	rwPod := fmt.Sprintf("%s-rw-0", r.clusterName()) // clusterName() returns the CR name
 	apiClient, ok := r.ApiClients[rwPod]
 	if !ok {
@@ -175,7 +172,7 @@ func (r *PiHoleClusterReconciler) ReadWriteAPIClient() (*pihole_api.APIClient, e
 }
 
 // Read‑only clients (all RO pods)
-func (r *PiHoleClusterReconciler) ReadOnlyAPIClients() ([]*pihole_api.APIClient, error) {
+func (r *Reconciler) ReadOnlyAPIClients() ([]*pihole_api.APIClient, error) {
 	var ro []*pihole_api.APIClient
 	prefix := fmt.Sprintf("%s-ro-", r.clusterName())
 
@@ -195,7 +192,7 @@ func (r *PiHoleClusterReconciler) ReadOnlyAPIClients() ([]*pihole_api.APIClient,
 // Scheduling helpers
 // ---------------------------------------------------------------------------
 
-func (r *PiHoleClusterReconciler) shouldSyncNow(cronExpr string, lastSync metav1.Time) bool {
+func (r *Reconciler) shouldSyncNow(cronExpr string, lastSync metav1.Time) bool {
 	if cronExpr == "" {
 		return false
 	}
@@ -216,7 +213,7 @@ func (r *PiHoleClusterReconciler) shouldSyncNow(cronExpr string, lastSync metav1
 // Pod sync status helpers
 // ---------------------------------------------------------------------------
 
-func (r *PiHoleClusterReconciler) isPodSynced(cluster *supporterinodev1alpha1.PiHoleCluster, podName string, uid types.UID) bool {
+func (r *Reconciler) isPodSynced(cluster *supporterinodev1alpha1.PiHoleCluster, podName string, uid types.UID) bool {
 	for _, s := range cluster.Status.SyncedPods {
 		if s.Name == podName && s.UID == uid {
 			return true
@@ -225,7 +222,7 @@ func (r *PiHoleClusterReconciler) isPodSynced(cluster *supporterinodev1alpha1.Pi
 	return false
 }
 
-func (r *PiHoleClusterReconciler) addPodSynced(cluster *supporterinodev1alpha1.PiHoleCluster, podName string, uid types.UID) {
+func (r *Reconciler) addPodSynced(cluster *supporterinodev1alpha1.PiHoleCluster, podName string, uid types.UID) {
 	if r.isPodSynced(cluster, podName, uid) {
 		return
 	}

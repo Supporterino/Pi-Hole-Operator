@@ -28,7 +28,7 @@ import (
 // --------------------
 // RW StatefulSet
 // --------------------
-func (r *PiHoleClusterReconciler) ensureReadWriteSTS(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (r *Reconciler) ensureReadWriteSTS(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
 	stsName := fmt.Sprintf("%s-rw", piHoleCluster.Name)
 
 	desired := &appsv1.StatefulSet{
@@ -129,10 +129,7 @@ func (r *PiHoleClusterReconciler) ensureReadWriteSTS(ctx context.Context, piHole
 		return err
 	}
 	if envCM != nil {
-		desired.Spec.Template.Spec.Containers[0].EnvFrom = append(
-			desired.Spec.Template.Spec.Containers[0].EnvFrom,
-			corev1.EnvFromSource{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: envCM.Name}}},
-		)
+		desired.Spec.Template.Spec.Containers[0].EnvFrom = append(desired.Spec.Template.Spec.Containers[0].EnvFrom, corev1.EnvFromSource{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: envCM.Name}}})
 	}
 
 	if !reflect.DeepEqual(piHoleCluster.Spec.Resources, corev1.ResourceRequirements{}) {
@@ -167,13 +164,11 @@ func (r *PiHoleClusterReconciler) ensureReadWriteSTS(ctx context.Context, piHole
 }
 
 // areRWPodsReady reports whether at least one RW pod is Ready.
-func (r *PiHoleClusterReconciler) areRWPodsReady(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (bool, error) {
+func (r *Reconciler) areRWPodsReady(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (bool, error) {
 	podList := &corev1.PodList{}
-	if err := r.List(ctx, podList,
-		client.InNamespace(piHoleCluster.Namespace),
-		client.MatchingLabels{"app.kubernetes.io/name": "pihole",
-			"app.kubernetes.io/instance":  piHoleCluster.Name,
-			"supporterino.de/pihole-role": "readwrite"}); err != nil {
+	if err := r.List(ctx, podList, client.InNamespace(piHoleCluster.Namespace), client.MatchingLabels{"app.kubernetes.io/name": "pihole",
+		"app.kubernetes.io/instance":  piHoleCluster.Name,
+		"supporterino.de/pihole-role": "readwrite"}); err != nil {
 		return false, fmt.Errorf("list RW pods: %w", err)
 	}
 
@@ -191,7 +186,7 @@ func (r *PiHoleClusterReconciler) areRWPodsReady(ctx context.Context, piHoleClus
 // --------------------
 // RO StatefulSet
 // --------------------
-func (r *PiHoleClusterReconciler) ensureReadOnlySTS(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (r *Reconciler) ensureReadOnlySTS(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
 	if piHoleCluster.Spec.Replicas <= 0 {
 		return nil
 	}
@@ -274,10 +269,22 @@ func (r *PiHoleClusterReconciler) ensureReadOnlySTS(ctx context.Context, piHoleC
 		return err
 	}
 	if envCM != nil {
-		desired.Spec.Template.Spec.Containers[0].EnvFrom = append(
-			desired.Spec.Template.Spec.Containers[0].EnvFrom,
-			corev1.EnvFromSource{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: envCM.Name}}},
-		)
+		desired.Spec.Template.Spec.Containers[0].EnvFrom = append(desired.Spec.Template.Spec.Containers[0].EnvFrom, corev1.EnvFromSource{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: envCM.Name}}})
+	}
+
+	volumeName := "pihole-data"
+	desired.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+		{Name: volumeName, MountPath: "/etc/pihole/db", SubPath: "databases"},
+		{Name: volumeName, MountPath: "/etc/pihole", SubPath: "config"},
+		{Name: volumeName, MountPath: "/etc/dnsmasq.d", SubPath: "dnsmasq"},
+	}
+	desired.Spec.Template.Spec.Volumes = []corev1.Volume{
+		{
+			Name: volumeName,
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
 	}
 
 	if !reflect.DeepEqual(piHoleCluster.Spec.Resources, corev1.ResourceRequirements{}) {
@@ -312,13 +319,11 @@ func (r *PiHoleClusterReconciler) ensureReadOnlySTS(ctx context.Context, piHoleC
 }
 
 // areROPodsReady reports whether at least one RO pod is Ready.
-func (r *PiHoleClusterReconciler) areROPodsReady(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (bool, error) {
+func (r *Reconciler) areROPodsReady(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (bool, error) {
 	podList := &corev1.PodList{}
-	if err := r.List(ctx, podList,
-		client.InNamespace(piHoleCluster.Namespace),
-		client.MatchingLabels{"app.kubernetes.io/name": "pihole",
-			"app.kubernetes.io/instance":  piHoleCluster.Name,
-			"supporterino.de/pihole-role": "readonly"}); err != nil {
+	if err := r.List(ctx, podList, client.InNamespace(piHoleCluster.Namespace), client.MatchingLabels{"app.kubernetes.io/name": "pihole",
+		"app.kubernetes.io/instance":  piHoleCluster.Name,
+		"supporterino.de/pihole-role": "readonly"}); err != nil {
 		return false, fmt.Errorf("list RO pods: %w", err)
 	}
 
@@ -336,7 +341,7 @@ func (r *PiHoleClusterReconciler) areROPodsReady(ctx context.Context, piHoleClus
 // --------------------
 // API Secret
 // --------------------
-func (r *PiHoleClusterReconciler) ensureAPISecret(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (*corev1.Secret, error) {
+func (r *Reconciler) ensureAPISecret(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (*corev1.Secret, error) {
 	if piHoleCluster.Spec.Config == nil ||
 		(piHoleCluster.Spec.Config.APIPassword.Password == "" && piHoleCluster.Spec.Config.APIPassword.SecretRef == nil) {
 		return nil, nil
@@ -351,8 +356,7 @@ func (r *PiHoleClusterReconciler) ensureAPISecret(ctx context.Context, piHoleClu
 			return nil, fmt.Errorf("failed to read referenced secret: %w", err)
 		}
 		if _, ok := src.Data[piHoleCluster.Spec.Config.APIPassword.SecretRef.Key]; !ok {
-			return nil, fmt.Errorf("key %q not found in secret %s/%s",
-				piHoleCluster.Spec.Config.APIPassword.SecretRef.Key, src.Namespace, src.Name)
+			return nil, fmt.Errorf("key %q not found in secret %s/%s", piHoleCluster.Spec.Config.APIPassword.SecretRef.Key, src.Namespace, src.Name)
 		}
 		return src, nil
 	}
@@ -392,7 +396,7 @@ func (r *PiHoleClusterReconciler) ensureAPISecret(ctx context.Context, piHoleClu
 	return existing, nil
 }
 
-func (r *PiHoleClusterReconciler) getAPISecret(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (*corev1.Secret, error) {
+func (r *Reconciler) getAPISecret(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (*corev1.Secret, error) {
 	if piHoleCluster.Spec.Config != nil && piHoleCluster.Spec.Config.APIPassword.SecretRef != nil {
 		secret := &corev1.Secret{}
 		if err := r.Get(ctx, types.NamespacedName{
@@ -402,8 +406,7 @@ func (r *PiHoleClusterReconciler) getAPISecret(ctx context.Context, piHoleCluste
 			return nil, fmt.Errorf("failed to read referenced secret: %w", err)
 		}
 		if _, ok := secret.Data[piHoleCluster.Spec.Config.APIPassword.SecretRef.Key]; !ok {
-			return nil, fmt.Errorf("key %q not found in secret %s/%s",
-				piHoleCluster.Spec.Config.APIPassword.SecretRef.Key, secret.Namespace, secret.Name)
+			return nil, fmt.Errorf("key %q not found in secret %s/%s", piHoleCluster.Spec.Config.APIPassword.SecretRef.Key, secret.Namespace, secret.Name)
 		}
 		return secret, nil
 	}
@@ -419,7 +422,7 @@ func (r *PiHoleClusterReconciler) getAPISecret(ctx context.Context, piHoleCluste
 // --------------------
 // PersistentVolumeClaim for PiHole data
 // --------------------
-func (r *PiHoleClusterReconciler) ensurePiHolePVC(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (*corev1.PersistentVolumeClaim, error) {
+func (r *Reconciler) ensurePiHolePVC(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (*corev1.PersistentVolumeClaim, error) {
 	log := logf.FromContext(ctx)
 
 	pvcName := fmt.Sprintf("%s-data", piHoleCluster.Name)
@@ -488,7 +491,7 @@ func (r *PiHoleClusterReconciler) ensurePiHolePVC(ctx context.Context, piHoleClu
 // --------------------
 // PodMonitor
 // --------------------
-func (r *PiHoleClusterReconciler) ensurePodMonitor(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (r *Reconciler) ensurePodMonitor(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
 	if piHoleCluster.Spec.Monitoring == nil ||
 		piHoleCluster.Spec.Monitoring.PodMonitor == nil ||
 		!piHoleCluster.Spec.Monitoring.PodMonitor.Enabled {
@@ -541,7 +544,7 @@ func (r *PiHoleClusterReconciler) ensurePodMonitor(ctx context.Context, piHoleCl
 // --------------------
 // Ingress
 // --------------------
-func (r *PiHoleClusterReconciler) ensureIngress(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (r *Reconciler) ensureIngress(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
 	if piHoleCluster.Spec.Ingress == nil || !piHoleCluster.Spec.Ingress.Enabled {
 		return nil
 	}
@@ -604,7 +607,7 @@ func (r *PiHoleClusterReconciler) ensureIngress(ctx context.Context, piHoleClust
 // --------------------
 // DNS Service
 // --------------------
-func (r *PiHoleClusterReconciler) ensureDNSService(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (r *Reconciler) ensureDNSService(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
 	svcName := fmt.Sprintf("%s-dns", piHoleCluster.Name)
 
 	desired := &corev1.Service{
@@ -650,7 +653,7 @@ func (r *PiHoleClusterReconciler) ensureDNSService(ctx context.Context, piHoleCl
 // --------------------
 // EnvConfigMap
 // --------------------
-func (r *PiHoleClusterReconciler) ensurePiHoleEnvCM(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (*corev1.ConfigMap, error) {
+func (r *Reconciler) ensurePiHoleEnvCM(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (*corev1.ConfigMap, error) {
 	if piHoleCluster.Spec.Config == nil || len(piHoleCluster.Spec.Config.EnvVars) == 0 {
 		return nil, nil
 	}

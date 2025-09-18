@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"sync"
 	"time"
@@ -220,20 +221,39 @@ func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
 	url := c.BaseURL + "/api/teleporter"
 	c.logger.V(1).Info(fmt.Sprintf("POST teleporter to %s", url))
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
+	// Build a multipart/form‑data body with the binary under the "teleporter" key
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	// Create the form file field.  Use a .zip filename and set its MIME type.
+	part, err := writer.CreateFormFile("file", "teleporter.zip")
+	if err != nil {
+		return fmt.Errorf("create form file: %w", err)
+	}
+	//part.Header.Set("Content-Type", "application/zip")
+	if _, err := part.Write(data); err != nil {
+		return fmt.Errorf("write data to form file: %w", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("close multipart writer: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
 	if err != nil {
 		return fmt.Errorf("new request: %w", err)
 	}
 	req.Header.Set("X-FTL-SID", c.sessionID)
-	req.Header.Set("Content-Type", "application/octet-stream")
+
+	// Content‑Type must include the multipart boundary
+	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	resp, err := c.Client.Do(req)
 	if err != nil {
 		return fmt.Errorf("POST teleporter: %w", err)
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
+	defer func(body io.ReadCloser) {
+		if err := body.Close(); err != nil {
 			c.logger.Error(err, "Failed to close response body.")
 		}
 	}(resp.Body)

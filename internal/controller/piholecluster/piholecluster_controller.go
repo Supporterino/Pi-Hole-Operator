@@ -21,21 +21,24 @@ import (
 	"fmt"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-
 	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
 	"supporterino.de/pihole/internal/pihole_api"
 	"supporterino.de/pihole/internal/utils"
 )
 
-const finalizerName = "piholecluster.finalizers.supporterino.de"
+const finalizerName = "piholecluster.supporterino.de/finalizer"
 
-type PiHoleClusterReconciler struct {
+type Reconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
@@ -55,12 +58,13 @@ type PiHoleClusterReconciler struct {
 //+kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="networking.k8s.io",resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="monitoring.coreos.com",resources=podmonitors,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile ----------------------------------------------------------------
 
-func (r *PiHoleClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// 0️⃣ Fetch the PiHoleCluster instance
 	piHoleCluster := &supporterinodev1alpha1.PiHoleCluster{}
 	if err := r.Get(ctx, req.NamespacedName, piHoleCluster); err != nil {
@@ -80,6 +84,21 @@ func (r *PiHoleClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	r.currentClusterName = piHoleCluster.Name
+
+	if piHoleCluster.GetDeletionTimestamp() != nil {
+		meta.SetStatusCondition(&piHoleCluster.Status.Conditions, metav1.Condition{
+			Type:    typePiHoleClusterNotReady,
+			Status:  metav1.ConditionUnknown,
+			Reason:  "Finalizing",
+			Message: fmt.Sprintf("PiHole cluster %s is being deleted", r.currentClusterName),
+		})
+
+		if err := r.Status().Update(ctx, piHoleCluster); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to update status: %w", err)
+		}
+
+		return r.handleDelete(ctx, piHoleCluster)
+	}
 
 	// 2️⃣ Ensure the API‑password secret is available
 	if _, err := r.ensureAPISecret(ctx, piHoleCluster); err != nil {
@@ -112,6 +131,14 @@ func (r *PiHoleClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	// 6️⃣ Sync API clients and perform configuration sync
 	if piHoleCluster.Spec.Sync != nil && piHoleCluster.Spec.Replicas > 0 {
+		ready, err := r.areROPodsReady(ctx, piHoleCluster)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("checking RO pod readiness: %w", err)
+		}
+		if !ready {
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		}
+
 		if err := r.syncAPIClients(ctx, piHoleCluster); err != nil {
 			return ctrl.Result{}, fmt.Errorf("sync API clients: %w", err)
 		}
@@ -156,13 +183,13 @@ func (r *PiHoleClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 // Finalizer handling -------------------------------------------------------
 
-func (r *PiHoleClusterReconciler) handleDelete(ctx context.Context, cluster *supporterinodev1alpha1.PiHoleCluster) (ctrl.Result, error) {
+func (r *Reconciler) handleDelete(ctx context.Context, cluster *supporterinodev1alpha1.PiHoleCluster) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	// Close all API clients
 	for name, cli := range r.ApiClients {
 		cli.Close()
-		log.Info("closed API client for pod %s", name)
+		log.Info("closed API client for pod.", "pod", name)
 	}
 	r.ApiClients = make(map[string]*pihole_api.APIClient)
 
@@ -177,13 +204,19 @@ func (r *PiHoleClusterReconciler) handleDelete(ctx context.Context, cluster *sup
 
 // Helper ---------------------------------------------------------
 
-func (r *PiHoleClusterReconciler) clusterName() string { return r.currentClusterName }
+func (r *Reconciler) clusterName() string { return r.currentClusterName }
 
 // SetupWithManager -----------------------------------------------------
 
-func (r *PiHoleClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&supporterinodev1alpha1.PiHoleCluster{}).
 		Named("piholecluster").
+		Owns(&appsv1.StatefulSet{}).
+		Owns(&corev1.Service{}).
+		Owns(&networkingv1.Ingress{}).
+		Owns(&corev1.Secret{}).
+		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.PersistentVolumeClaim{}).
 		Complete(r)
 }

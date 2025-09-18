@@ -1,30 +1,31 @@
+// internal/webhook/v1alpha1/piholecluster_webhook.go
+
 /*
 Copyright 2025.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+	Licensed under the Apache License, Version 2.0 (the "License");
+	you may not use this file except in compliance with the License.
+	You may obtain a copy of the License at
+	  http://www.apache.org/licenses/LICENSE-2.0
+	Unless required by applicable law or agreed to in writing, software
+	distributed under the License is distributed on an "AS IS" BASIS,
+	WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+	See the License for the specific language governing permissions and
+	limitations under the License.
 */
-
 package v1alpha1
 
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	cronparser "github.com/robfig/cron/v3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -33,64 +34,48 @@ import (
 	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
 )
 
-// nolint:unused
 // log is for logging in this package.
 var piholeclusterlog = logf.Log.WithName("piholecluster-resource")
 
 // SetupPiHoleClusterWebhookWithManager registers the webhook for PiHoleCluster in the manager.
 func SetupPiHoleClusterWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&supporterinodev1alpha1.PiHoleCluster{}).
+	return ctrl.NewWebhookManagedBy(mgr).
+		For(&supporterinodev1alpha1.PiHoleCluster{}).
 		WithValidator(&PiHoleClusterCustomValidator{}).
 		WithDefaulter(&PiHoleClusterCustomDefaulter{}).
 		Complete()
 }
 
-// TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-
 // +kubebuilder:webhook:path=/mutate-supporterino-de-v1alpha1-piholecluster,mutating=true,failurePolicy=fail,sideEffects=None,groups=supporterino.de,resources=piholeclusters,verbs=create;update,versions=v1alpha1,name=mpiholecluster-v1alpha1.kb.io,admissionReviewVersions=v1
 
-// PiHoleClusterCustomDefaulter struct is responsible for setting default values on the custom resource of the
-// Kind PiHoleCluster when those are created or updated.
-//
-// NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
-// as it is used only for temporary operations and does not need to be deeply copied.
-type PiHoleClusterCustomDefaulter struct {
-	// TODO(user): Add more fields as needed for defaulting
-}
+// PiHoleClusterCustomDefaulter sets default values on the custom resource of the Kind PiHoleCluster.
+type PiHoleClusterCustomDefaulter struct{}
 
+// +kubebuilder:object:generate=false
 var _ webhook.CustomDefaulter = &PiHoleClusterCustomDefaulter{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind PiHoleCluster.
 func (d *PiHoleClusterCustomDefaulter) Default(_ context.Context, obj runtime.Object) error {
 	piholecluster, ok := obj.(*supporterinodev1alpha1.PiHoleCluster)
-
 	if !ok {
-		return fmt.Errorf("expected an PiHoleCluster object but got %T", obj)
+		return fmt.Errorf("expected a PiHoleCluster object but got %T", obj)
 	}
 	piholeclusterlog.Info("Defaulting for PiHoleCluster", "name", piholecluster.GetName())
 
-	// TODO(user): fill in your defaulting logic.
+	// TODO: set default values here (e.g. defaults for Monitoring.Exporter)
 
 	return nil
 }
 
-// TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
-// NOTE: The 'path' attribute must follow a specific pattern and should not be modified directly here.
-// Modifying the path for an invalid path can cause API server errors; failing to locate the webhook.
 // +kubebuilder:webhook:path=/validate-supporterino-de-v1alpha1-piholecluster,mutating=false,failurePolicy=fail,sideEffects=None,groups=supporterino.de,resources=piholeclusters,verbs=create;update,versions=v1alpha1,name=vpiholecluster-v1alpha1.kb.io,admissionReviewVersions=v1
 
-// PiHoleClusterCustomValidator struct is responsible for validating the PiHoleCluster resource
-// when it is created, updated, or deleted.
-//
-// NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
-// as this struct is used only for temporary operations and does not need to be deeply copied.
-type PiHoleClusterCustomValidator struct {
-	// TODO(user): Add more fields as needed for validation
-}
+// PiHoleClusterCustomValidator validates the PiHoleCluster resource.
+type PiHoleClusterCustomValidator struct{}
 
+// +kubebuilder:object:generate=false
 var _ webhook.CustomValidator = &PiHoleClusterCustomValidator{}
 
-// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type PiHoleCluster.
+// ValidateCreate implements webhook.CustomValidator.
 func (v *PiHoleClusterCustomValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
 	piholecluster, ok := obj.(*supporterinodev1alpha1.PiHoleCluster)
 	if !ok {
@@ -107,12 +92,11 @@ func (v *PiHoleClusterCustomValidator) ValidateCreate(_ context.Context, obj run
 	if err := v.validateMonitoring(piholecluster); err != nil {
 		return nil, err
 	}
-
 	return nil, nil
 }
 
-// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type PiHoleCluster.
-func (v *PiHoleClusterCustomValidator) ValidateUpdate(_ context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+// ValidateUpdate implements webhook.CustomValidator.
+func (v *PiHoleClusterCustomValidator) ValidateUpdate(_ context.Context, _ runtime.Object, newObj runtime.Object) (admission.Warnings, error) {
 	piholecluster, ok := newObj.(*supporterinodev1alpha1.PiHoleCluster)
 	if !ok {
 		return nil, fmt.Errorf("expected a PiHoleCluster object for the newObj but got %T", newObj)
@@ -128,92 +112,68 @@ func (v *PiHoleClusterCustomValidator) ValidateUpdate(_ context.Context, oldObj,
 	if err := v.validateMonitoring(piholecluster); err != nil {
 		return nil, err
 	}
-
 	return nil, nil
 }
 
-// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type PiHoleCluster.
-func (v *PiHoleClusterCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+// ValidateDelete implements webhook.CustomValidator.
+func (v *PiHoleClusterCustomValidator) ValidateDelete(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
 	piholecluster, ok := obj.(*supporterinodev1alpha1.PiHoleCluster)
 	if !ok {
 		return nil, fmt.Errorf("expected a PiHoleCluster object but got %T", obj)
 	}
 	piholeclusterlog.Info("Validation for PiHoleCluster upon deletion", "name", piholecluster.GetName())
 
-	// TODO(user): fill in your validation logic upon object deletion.
+	// TODO: add deletion‑specific validation if required
 
 	return nil, nil
 }
 
-// validateIngress checks the ingress rule
+/* -------------------------------------------------------------------------- */
+/* Validation helpers                                                        */
+/* -------------------------------------------------------------------------- */
+
 func (v *PiHoleClusterCustomValidator) validateIngress(piholecluster *supporterinodev1alpha1.PiHoleCluster) error {
 	spec := piholecluster.Spec
-	allErrs := field.ErrorList{}
-
-	if spec.Ingress == nil {
-		return nil
+	if spec.Ingress == nil || !spec.Ingress.Enabled {
+		return nil // nothing to validate
+	}
+	if spec.Ingress.Domain == "" {
+		gvk := metav1.SchemeGroupVersion.WithKind("PiHoleCluster").GroupKind()
+		return apierrors.NewInvalid(gvk, piholecluster.Name, field.ErrorList{field.Invalid(field.NewPath("spec", "ingress", "domain"), spec.Ingress.Domain, "must not be empty")})
 	}
 
-	if spec.Ingress.Enabled && spec.Ingress.Domain == "" {
-		return apierrors.NewInvalid(
-			metav1.SchemeGroupVersion.WithKind("PiHoleCluster").GroupKind(),
-			piholecluster.Name,
-			append(allErrs, field.Invalid(field.NewPath("spec", "ingress", "domain"), spec.Ingress.Domain, "must not be empty")),
-		)
+	// Basic FQDN check – allows `example.com`, `sub.example.org`, etc.
+	fqdnRe := regexp.MustCompile(`^([a-zA-Z0-9](-?[a-zA-Z0-9])*\.)+[a-zA-Z]{2,}$`)
+	if !fqdnRe.MatchString(spec.Ingress.Domain) {
+		gvk := metav1.SchemeGroupVersion.WithKind("PiHoleCluster").GroupKind()
+		return apierrors.NewInvalid(gvk, piholecluster.Name, field.ErrorList{field.Invalid(field.NewPath("spec", "ingress", "domain"), spec.Ingress.Domain, "must be a valid FQDN")})
 	}
 	return nil
 }
 
-// validateCron ensures the cron field is syntactically correct.
 func (v *PiHoleClusterCustomValidator) validateCron(piholecluster *supporterinodev1alpha1.PiHoleCluster) error {
 	spec := piholecluster.Spec
-	allErrs := field.ErrorList{}
-
-	// No sync block → nothing to validate
-	if spec.Sync == nil {
-		return nil
+	if spec.Sync == nil || spec.Sync.Cron == "" {
+		return nil // CRD already enforces MinLength=1
 	}
-
-	// Empty cron is already rejected by the CRD (MinLength=1),
-	// but we still guard against it.
-	cronExpr := spec.Sync.Cron
-	if cronExpr == "" {
-		return nil // let the CRD validator handle it
+	if _, err := cronparser.ParseStandard(spec.Sync.Cron); err != nil {
+		gvk := metav1.SchemeGroupVersion.WithKind("PiHoleCluster").GroupKind()
+		return apierrors.NewInvalid(gvk, piholecluster.Name, field.ErrorList{field.Invalid(field.NewPath("spec", "sync", "cron"), spec.Sync.Cron, fmt.Sprintf("invalid cron expression: %v", err))})
 	}
-
-	// Attempt to parse the cron expression.
-	if _, err := cronparser.ParseStandard(cronExpr); err != nil {
-		return apierrors.NewInvalid(
-			metav1.SchemeGroupVersion.WithKind("PiHoleCluster").GroupKind(),
-			piholecluster.Name,
-			append(allErrs, field.Invalid(field.NewPath("spec", "sync", "cron"), cronExpr, "Invalid cron expression")),
-		)
-	}
-
 	return nil
 }
 
 func (v *PiHoleClusterCustomValidator) validateMonitoring(piholecluster *supporterinodev1alpha1.PiHoleCluster) error {
 	spec := piholecluster.Spec
-	allErrs := field.ErrorList{}
-
-	// nothing to validate if monitoring block is missing
-	if spec.Monitoring == nil {
-		return nil
+	if spec.Monitoring == nil || (spec.Monitoring.PodMonitor == nil && spec.Monitoring.Exporter == nil) {
+		return nil // nothing to validate
 	}
 
-	// Guard against missing sub‑objects
-	if spec.Monitoring.PodMonitor == nil || spec.Monitoring.Exporter == nil {
-		return nil // other validations (required/ defaults) will handle missing fields
+	if spec.Monitoring.PodMonitor != nil && spec.Monitoring.PodMonitor.Enabled {
+		if spec.Monitoring.Exporter == nil || !spec.Monitoring.Exporter.Enabled {
+			gvk := metav1.SchemeGroupVersion.WithKind("PiHoleCluster").GroupKind()
+			return apierrors.NewInvalid(gvk, piholecluster.Name, field.ErrorList{field.Invalid(field.NewPath("spec", "monitoring", "exporter", "enabled"), spec.Monitoring.Exporter.Enabled, "must be true when podMonitor.enabled is true")})
+		}
 	}
-
-	if spec.Monitoring.PodMonitor.Enabled && !spec.Monitoring.Exporter.Enabled {
-		return apierrors.NewInvalid(
-			metav1.SchemeGroupVersion.WithKind("PiHoleCluster").GroupKind(),
-			piholecluster.Name,
-			append(allErrs, field.Invalid(field.NewPath("spec", "monitoring", "exporter", "enabled"), spec.Monitoring.Exporter.Enabled, "must be true when podMonitor.enabled is true")),
-		)
-	}
-
 	return nil
 }

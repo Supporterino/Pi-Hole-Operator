@@ -24,7 +24,7 @@ import (
 // Resource readiness checks
 // ---------------------------------------------------------------------------
 
-func (r *PiHoleClusterReconciler) resourcesReady(ctx context.Context, piholecluster *supporterinodev1alpha1.PiHoleCluster) (bool, error) {
+func (r *Reconciler) resourcesReady(ctx context.Context, piholecluster *supporterinodev1alpha1.PiHoleCluster) (bool, error) {
 	// 1️⃣ RW StatefulSet
 	rwSTS := &appsv1.StatefulSet{}
 	if err := r.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-rw", piholecluster.Name), Namespace: piholecluster.Namespace}, rwSTS); err != nil {
@@ -85,23 +85,23 @@ func (r *PiHoleClusterReconciler) resourcesReady(ctx context.Context, piholeclus
 // Status helpers
 // ---------------------------------------------------------------------------
 
-func (r *PiHoleClusterReconciler) updateStatus(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster, ready bool, errMsg string) error {
+func (r *Reconciler) updateStatus(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster, ready bool, errMsg string) error {
 	// 1️⃣ Update fields
 	piHoleCluster.Status.ResourcesReady = ready
 	piHoleCluster.Status.LastError = errMsg
 
 	// 2️⃣ Update the Ready condition
 	meta.SetStatusCondition(&piHoleCluster.Status.Conditions, metav1.Condition{
-		Type:    "Ready",
+		Type:    typePiHoleClusterReady,
 		Status:  metav1.ConditionTrue,
 		Reason:  "ResourcesReady",
 		Message: fmt.Sprintf("All resources are healthy. Ready=%t", ready),
 	})
 	if !ready {
 		meta.SetStatusCondition(&piHoleCluster.Status.Conditions, metav1.Condition{
-			Type:    "NotReady",
+			Type:    typePiHoleClusterNotReady,
 			Status:  metav1.ConditionFalse,
-			Reason:  "ResourcesNotReady",
+			Reason:  "MissingResources",
 			Message: errMsg,
 		})
 	}
@@ -113,7 +113,7 @@ func (r *PiHoleClusterReconciler) updateStatus(ctx context.Context, piHoleCluste
 	return nil
 }
 
-func (r *PiHoleClusterReconciler) updateConfigSynced(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster, synced bool) error {
+func (r *Reconciler) updateConfigSynced(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster, synced bool) error {
 	// Fetch the latest version to avoid race conditions
 	if err := r.Get(ctx, ctrlclient.ObjectKeyFromObject(piHoleCluster), piHoleCluster); err != nil {
 		return fmt.Errorf("refetching CR for status update: %w", err)

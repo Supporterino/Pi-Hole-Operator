@@ -5,4 +5,4 @@ kind: Kustomization
 images:
   - name: controller
     newName: registry.supporterino.de/supporterino/pihole-operator
-    newTag: latest
+    newTag: 0.0.22
