@@ -38,6 +38,61 @@ const (
 	MaxResponseSize = 25 * 1024 * 1024 // 25MB (for DoS protection)
 )
 
+// ---------------------------------------------------------------------------
+// Generic exponential back‑off helper
+// ---------------------------------------------------------------------------
+
+// retryFunc defines the signature of a function that can be retried.
+// It should return nil on success or an error to retry.
+type retryFunc func() error
+
+// backoffConfig holds the parameters for a single retry loop.
+type backoffConfig struct {
+	// How many attempts we will make in total (maxRetries + 1).
+	MaxRetries int
+	// First wait interval.
+	Initial time.Duration
+	// Largest interval we will wait between attempts.
+	Max time.Duration
+}
+
+// retryWithBackoff runs fn repeatedly until it succeeds or we exhaust the
+// number of attempts.  On each failure it waits an exponentially increasing
+// interval (capped by cfg.Max).  The function logs each retry attempt.
+func retryWithBackoff(ctx context.Context, log logr.Logger, cfg backoffConfig, fn retryFunc) error {
+	// We make a copy of the config so we can modify backOff.
+	backOff := cfg.Initial
+
+	for attempt := 0; attempt <= cfg.MaxRetries; attempt++ {
+		if err := fn(); err == nil { // success
+			return nil
+		} else {
+
+			// If we’re on the last attempt, give up.
+			if attempt == cfg.MaxRetries {
+				return fmt.Errorf("after %d attempts: %w", attempt+1, err)
+			}
+
+			// Log the failure and wait before retrying.
+			log.V(1).Info("retrying operation", "attempt", attempt+1, "err", err)
+			select {
+			case <-time.After(backOff):
+				// nothing – continue loop
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+
+			backOff *= 2
+			if backOff > cfg.Max {
+				backOff = cfg.Max
+			}
+		}
+	}
+
+	// Unreachable – the loop always returns.
+	return nil
+}
+
 // NewAPIClient initializes and returns a new APIClient.
 func NewAPIClient(baseURL string, password string, timeout time.Duration, skipTLSVerification bool, ctx context.Context) *APIClient {
 	transport := &http.Transport{
@@ -57,53 +112,75 @@ func NewAPIClient(baseURL string, password string, timeout time.Duration, skipTL
 	}
 }
 
-// Authenticate logs in and stores the session ID.
+// ---------------------------------------------------------------------------
+// APIClient.Authenticate – now with back‑off
+// ---------------------------------------------------------------------------
+
 func (c *APIClient) Authenticate() error {
+	// We only need the lock for setting the session – the retry logic
+	// itself does not modify any shared state.
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	url := fmt.Sprintf("%s/api/auth", c.BaseURL)
-	payload := map[string]string{"password": c.password}
-	jsonPayload, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal authentication payload: %w", err)
-	}
-
-	c.logger.V(1).Info(fmt.Sprintf("Authenticating to %s", c.BaseURL))
-
-	resp, err := c.Client.Post(url, "application/json", bytes.NewBuffer(jsonPayload))
-	if err != nil {
-		c.logger.Error(err, "Authentication request failed.")
-		return fmt.Errorf("authentication request failed: %w", err)
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			c.logger.Error(err, "Failed to close response body.")
+	// --------------------------------------------------------------------
+	// Helper that performs the actual HTTP request.
+	// --------------------------------------------------------------------
+	doAuth := func() error {
+		url := fmt.Sprintf("%s/api/auth", c.BaseURL)
+		payload := map[string]string{"password": c.password}
+		jsonPayload, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("failed to marshal authentication payload: %w", err)
 		}
-	}()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("authentication failed, status code: %d", resp.StatusCode)
+		c.logger.V(1).Info(fmt.Sprintf("Authenticating to %s", c.BaseURL))
+
+		resp, err := c.Client.Post(url, "application/json", bytes.NewBuffer(jsonPayload))
+		if err != nil {
+			c.logger.V(1).Info(fmt.Sprintf("Authentication request failed. Error: %v", err))
+			return fmt.Errorf("authentication request failed: %w", err)
+		}
+		defer func() {
+			if cerr := resp.Body.Close(); cerr != nil {
+				c.logger.Error(cerr, "Failed to close response body.")
+			}
+		}()
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("authentication failed, status code: %d", resp.StatusCode)
+		}
+
+		body, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseSize))
+		if err != nil {
+			return fmt.Errorf("failed to read authentication response: %w", err)
+		}
+
+		var authResp authResponse
+		if err := json.Unmarshal(body, &authResp); err != nil {
+			return fmt.Errorf("failed to parse authentication response: %w", err)
+		}
+
+		if !authResp.Session.Valid {
+			return fmt.Errorf("authentication unsuccessful")
+		}
+
+		// Success – set the session data
+		c.sessionID = authResp.Session.SID
+		c.validity = time.Now().Add(time.Duration(authResp.Session.Validity) * time.Second)
+		c.logger.V(1).Info("Authentication successful")
+		return nil
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseSize)) // Prevent
-	if err != nil {
-		return fmt.Errorf("failed to read authentication response: %w", err)
+	// --------------------------------------------------------------------
+	// Retry the authentication with exponential back‑off.
+	// --------------------------------------------------------------------
+	cfg := backoffConfig{
+		MaxRetries: 5, // total attempts = 4
+		Initial:    500 * time.Millisecond,
+		Max:        5 * time.Second,
 	}
 
-	var authResp authResponse
-	if err := json.Unmarshal(body, &authResp); err != nil {
-		return fmt.Errorf("failed to parse authentication response: %w", err)
-	}
-
-	if !authResp.Session.Valid {
-		return fmt.Errorf("authentication unsuccessful")
-	}
-
-	c.sessionID = authResp.Session.SID
-	c.validity = time.Now().Add(time.Duration(authResp.Session.Validity) * time.Second)
-	c.logger.V(1).Info("Authentication successful")
-	return nil
+	return retryWithBackoff(context.Background(), c.logger, cfg, doAuth)
 }
 
 // ensureAuth ensures the session is valid before making a request.
@@ -214,9 +291,11 @@ func (c *APIClient) DownloadTeleporter(ctx context.Context) ([]byte, error) {
 // UploadTeleporter posts the binary to /api/teleporter on a read‑only pod.
 // The caller provides the byte slice that was downloaded from the RW replica.
 //
-// A retry loop with exponential back‑off is added so that a transient
-// “connection refused” or similar error does not immediately cause the whole sync to fail.
+// The function now delegates all retry logic to `retryWithBackoff`.  It builds
+// the multipart body once and re‑uses it for every attempt, which keeps the
+// code small and easy to read.
 func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
+	// 1️⃣ Make sure we are authenticated first.
 	if err := c.ensureAuth(); err != nil {
 		return fmt.Errorf("auth: %w", err)
 	}
@@ -224,9 +303,11 @@ func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
 	url := c.BaseURL + "/api/teleporter"
 	c.logger.V(1).Info(fmt.Sprintf("POST teleporter to %s", url))
 
-	// ---------- build the multipart body ----------
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
+	// --------------------------------------------------------------------
+	// Build the multipart payload once.
+	// --------------------------------------------------------------------
+	var payload bytes.Buffer
+	writer := multipart.NewWriter(&payload)
 
 	part, err := writer.CreateFormFile("file", "teleporter.zip")
 	if err != nil {
@@ -235,65 +316,52 @@ func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
 	if _, err := part.Write(data); err != nil {
 		return fmt.Errorf("write data to form file: %w", err)
 	}
+	contentType := writer.FormDataContentType()
 	if err := writer.Close(); err != nil {
 		return fmt.Errorf("close multipart writer: %w", err)
 	}
 
-	// ---------- retry parameters ----------
-	const (
-		maxRetries     = 3                      // total attempts = maxRetries + 1
-		initialBackoff = 500 * time.Millisecond // first wait
-		maxBackoff     = 5 * time.Second        // cap on back‑off
-	)
+	// --------------------------------------------------------------------
+	// Retry configuration.
+	// --------------------------------------------------------------------
+	cfg := backoffConfig{
+		MaxRetries: 5, // total attempts = 4
+		Initial:    500 * time.Millisecond,
+		Max:        5 * time.Second,
+	}
 
-	backOff := initialBackoff
-
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
+	// --------------------------------------------------------------------
+	// The operation we want to retry.
+	// --------------------------------------------------------------------
+	doUpload := func() error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url,
+			bytes.NewReader(payload.Bytes()))
 		if err != nil {
 			return fmt.Errorf("new request: %w", err) // not retriable – bail out
 		}
 		req.Header.Set("X-FTL-SID", c.sessionID)
-		req.Header.Set("Content-Type", writer.FormDataContentType())
+		req.Header.Set("Content-Type", contentType)
 
 		resp, err := c.Client.Do(req)
-		if err == nil {
-			// Successful request – check the status code
-			defer func(Body io.ReadCloser) {
-				err := Body.Close()
-				if err != nil {
-					c.logger.Error(err, "Failed to close response body.")
-				}
-			}(resp.Body)
-			if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
-				return nil
+		if err != nil {
+			return fmt.Errorf("POST teleporter: %w", err)
+		}
+		defer func() {
+			if cerr := resp.Body.Close(); cerr != nil {
+				c.logger.Error(cerr, "Failed to close response body.")
 			}
-			err = fmt.Errorf("POST teleporter status %d", resp.StatusCode)
-		}
+		}()
 
-		// If this was the last attempt, return the error.
-		if attempt == maxRetries {
-			return fmt.Errorf("upload failed after %d attempts: %w", attempt+1, err)
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+			return fmt.Errorf("POST teleporter status %d", resp.StatusCode)
 		}
-
-		// Log the failure and wait before retrying.
-		c.logger.V(1).Info("upload failed – retrying", "attempt", attempt+1, "error", err)
-		time.Sleep(backOff)
-
-		// Double the back‑off for next try, but never exceed maxBackoff.
-		backOff *= 2
-		if backOff > maxBackoff {
-			backOff = maxBackoff
-		}
-
-		// Reset the buffer so that we can re‑send the multipart body.
-		buf.Reset()
-		if err := writer.WriteField("file", "teleporter.zip"); err == nil {
-			writer.Close()
-		}
+		return nil
 	}
 
-	return fmt.Errorf("unreachable – should never get here")
+	// --------------------------------------------------------------------
+	// Execute the operation with exponential back‑off.
+	// --------------------------------------------------------------------
+	return retryWithBackoff(ctx, c.logger, cfg, doUpload)
 }
 
 // Close cleans up resources used by the API client
