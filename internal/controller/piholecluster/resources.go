@@ -13,8 +13,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -29,6 +29,7 @@ import (
 // RW StatefulSet
 // --------------------
 func (r *Reconciler) ensureReadWriteSTS(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
+	log := logf.FromContext(ctx)
 	stsName := fmt.Sprintf("%s-rw", piHoleCluster.Name)
 
 	desired := &appsv1.StatefulSet{
@@ -144,21 +145,8 @@ func (r *Reconciler) ensureReadWriteSTS(ctx context.Context, piHoleCluster *supp
 		desired.Spec.Template.Spec.Containers[0].SecurityContext = piHoleCluster.Spec.Security.ContainerSecurityContext
 	}
 
-	if err := ctrl.SetControllerReference(piHoleCluster, desired, r.Scheme); err != nil {
+	if _, err := utils.UpsertResource(ctx, r.Client, piHoleCluster, desired, stsName, log, nil); err != nil {
 		return err
-	}
-
-	existing := &appsv1.StatefulSet{}
-	if err = r.Get(ctx, types.NamespacedName{Name: stsName, Namespace: piHoleCluster.Namespace}, existing); err != nil {
-		if apierrors.IsNotFound(err) {
-			return r.Create(ctx, desired)
-		}
-		return err
-	}
-
-	if !reflect.DeepEqual(existing.Spec, desired.Spec) {
-		existing.Spec = desired.Spec
-		return r.Update(ctx, existing)
 	}
 	return nil
 }
@@ -190,6 +178,7 @@ func (r *Reconciler) ensureReadOnlySTS(ctx context.Context, piHoleCluster *suppo
 	if piHoleCluster.Spec.Replicas <= 0 {
 		return nil
 	}
+	log := logf.FromContext(ctx)
 	stsName := fmt.Sprintf("%s-ro", piHoleCluster.Name)
 
 	desired := &appsv1.StatefulSet{
@@ -299,21 +288,8 @@ func (r *Reconciler) ensureReadOnlySTS(ctx context.Context, piHoleCluster *suppo
 		desired.Spec.Template.Spec.Containers[0].SecurityContext = piHoleCluster.Spec.Security.ContainerSecurityContext
 	}
 
-	if err := ctrl.SetControllerReference(piHoleCluster, desired, r.Scheme); err != nil {
+	if _, err := utils.UpsertResource(ctx, r.Client, piHoleCluster, desired, stsName, log, nil); err != nil {
 		return err
-	}
-
-	existing := &appsv1.StatefulSet{}
-	if err = r.Get(ctx, types.NamespacedName{Name: stsName, Namespace: piHoleCluster.Namespace}, existing); err != nil {
-		if apierrors.IsNotFound(err) {
-			return r.Create(ctx, desired)
-		}
-		return err
-	}
-
-	if !reflect.DeepEqual(existing.Spec, desired.Spec) {
-		existing.Spec = desired.Spec
-		return r.Update(ctx, existing)
 	}
 	return nil
 }
@@ -341,13 +317,11 @@ func (r *Reconciler) areROPodsReady(ctx context.Context, piHoleCluster *supporte
 
 	// 3️⃣ Verify that every replica pod is actually ready.
 	podList := &corev1.PodList{}
-	if err := r.List(ctx, podList,
-		client.InNamespace(piHoleCluster.Namespace),
-		client.MatchingLabels{
-			"app.kubernetes.io/name":      "pihole",
-			"app.kubernetes.io/instance":  piHoleCluster.Name,
-			"supporterino.de/pihole-role": "readonly",
-		}); err != nil {
+	if err := r.List(ctx, podList, client.InNamespace(piHoleCluster.Namespace), client.MatchingLabels{
+		"app.kubernetes.io/name":      "pihole",
+		"app.kubernetes.io/instance":  piHoleCluster.Name,
+		"supporterino.de/pihole-role": "readonly",
+	}); err != nil {
 		return false, fmt.Errorf("list RO pods: %w", err)
 	}
 
@@ -389,6 +363,7 @@ func (r *Reconciler) ensureAPISecret(ctx context.Context, piHoleCluster *support
 		return src, nil
 	}
 
+	log := logf.FromContext(ctx)
 	secretName := fmt.Sprintf("%s-api-password", piHoleCluster.Name)
 	desired := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -400,28 +375,12 @@ func (r *Reconciler) ensureAPISecret(ctx context.Context, piHoleCluster *support
 		},
 	}
 
-	if err := ctrl.SetControllerReference(piHoleCluster, desired, r.Scheme); err != nil {
+	secret, err := utils.UpsertResource(ctx, r.Client, piHoleCluster, desired, secretName, log, nil)
+	if err != nil {
 		return nil, err
 	}
 
-	existing := &corev1.Secret{}
-	if err := r.Get(ctx, types.NamespacedName{Name: secretName, Namespace: piHoleCluster.Namespace}, existing); err != nil {
-		if apierrors.IsNotFound(err) {
-			if err := r.Create(ctx, desired); err != nil {
-				return nil, err
-			}
-			return desired, nil
-		}
-		return nil, err
-	}
-
-	if !reflect.DeepEqual(existing.Data, desired.Data) {
-		existing.Data = desired.Data
-		if err := r.Update(ctx, existing); err != nil {
-			return nil, err
-		}
-	}
-	return existing, nil
+	return secret.(*corev1.Secret), nil
 }
 
 func (r *Reconciler) getAPISecret(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (*corev1.Secret, error) {
@@ -488,32 +447,27 @@ func (r *Reconciler) ensurePiHolePVC(ctx context.Context, piHoleCluster *support
 		desired.Spec.StorageClassName = storageClassName
 	}
 
-	if err := ctrl.SetControllerReference(piHoleCluster, desired, r.Scheme); err != nil {
-		return nil, err
-	}
+	// Customizer that only updates the storage request
+	pvcCustomizer := func(existing, desired ctrlclient.Object) (ctrlclient.Object, error) {
+		existingPVC := existing.(*corev1.PersistentVolumeClaim)
+		desiredPVC := desired.(*corev1.PersistentVolumeClaim)
 
-	existing := &corev1.PersistentVolumeClaim{}
-	if err := r.Get(ctx, types.NamespacedName{Name: pvcName, Namespace: piHoleCluster.Namespace}, existing); err != nil {
-		if apierrors.IsNotFound(err) {
-			if err := r.Create(ctx, desired); err != nil {
-				log.Error(err, "Failed to create PVC")
-				return nil, err
+		if !reflect.DeepEqual(existingPVC.Spec.Resources.Requests, desiredPVC.Spec.Resources.Requests) {
+			existingPVC.Spec.Resources.Requests = desiredPVC.Spec.Resources.Requests
+			if err := r.Update(ctx, existingPVC); err != nil {
+				return nil, fmt.Errorf("update pvc: %w", err)
 			}
-			log.V(0).Info("PVC created", "name", pvcName)
-			return desired, nil
+			return existingPVC, nil
 		}
-		log.V(1).Info("Error while fetching PVC", "err:", err, "pvcName:", pvcName)
+		return desiredPVC, nil
+	}
+
+	pvc, err := utils.UpsertResource(ctx, r.Client, piHoleCluster, desired, pvcName, log, pvcCustomizer)
+	if err != nil {
 		return nil, err
 	}
 
-	if !reflect.DeepEqual(existing.Spec.Resources.Requests, desired.Spec.Resources.Requests) {
-		existing.Spec.Resources.Requests = desired.Spec.Resources.Requests
-		if err := r.Update(ctx, existing); err != nil {
-			log.Error(err, "Failed to update PVC")
-			return nil, err
-		}
-	}
-	return existing, nil
+	return pvc.(*corev1.PersistentVolumeClaim), nil
 }
 
 // --------------------
@@ -526,6 +480,7 @@ func (r *Reconciler) ensurePodMonitor(ctx context.Context, piHoleCluster *suppor
 		return nil
 	}
 
+	log := logf.FromContext(ctx)
 	pmName := piHoleCluster.Name
 
 	desired := &monitoringv1.PodMonitor{
@@ -550,22 +505,11 @@ func (r *Reconciler) ensurePodMonitor(ctx context.Context, piHoleCluster *suppor
 		},
 	}
 
-	if err := ctrl.SetControllerReference(piHoleCluster, desired, r.Scheme); err != nil {
+	_, err := utils.UpsertResource(ctx, r.Client, piHoleCluster, desired, pmName, log, nil)
+	if err != nil {
 		return err
 	}
 
-	existing := &monitoringv1.PodMonitor{}
-	if err := r.Get(ctx, types.NamespacedName{Name: pmName, Namespace: piHoleCluster.Namespace}, existing); err != nil {
-		if apierrors.IsNotFound(err) {
-			return r.Create(ctx, desired)
-		}
-		return err
-	}
-
-	if !reflect.DeepEqual(existing.Spec, desired.Spec) {
-		existing.Spec = desired.Spec
-		return r.Update(ctx, existing)
-	}
 	return nil
 }
 
@@ -577,6 +521,7 @@ func (r *Reconciler) ensureIngress(ctx context.Context, piHoleCluster *supporter
 		return nil
 	}
 
+	log := logf.FromContext(ctx)
 	ingName := piHoleCluster.Name
 
 	desired := &networkingv1.Ingress{
@@ -613,22 +558,11 @@ func (r *Reconciler) ensureIngress(ctx context.Context, piHoleCluster *supporter
 		},
 	}
 
-	if err := ctrl.SetControllerReference(piHoleCluster, desired, r.Scheme); err != nil {
+	_, err := utils.UpsertResource(ctx, r.Client, piHoleCluster, desired, ingName, log, nil)
+	if err != nil {
 		return err
 	}
 
-	existing := &networkingv1.Ingress{}
-	if err := r.Get(ctx, types.NamespacedName{Name: ingName, Namespace: piHoleCluster.Namespace}, existing); err != nil {
-		if apierrors.IsNotFound(err) {
-			return r.Create(ctx, desired)
-		}
-		return err
-	}
-
-	if !reflect.DeepEqual(existing.Spec, desired.Spec) {
-		existing.Spec = desired.Spec
-		return r.Update(ctx, existing)
-	}
 	return nil
 }
 
@@ -636,6 +570,7 @@ func (r *Reconciler) ensureIngress(ctx context.Context, piHoleCluster *supporter
 // DNS Service
 // --------------------
 func (r *Reconciler) ensureDNSService(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
+	log := logf.FromContext(ctx)
 	svcName := fmt.Sprintf("%s-dns", piHoleCluster.Name)
 
 	desired := &corev1.Service{
@@ -659,22 +594,11 @@ func (r *Reconciler) ensureDNSService(ctx context.Context, piHoleCluster *suppor
 		},
 	}
 
-	if err := ctrl.SetControllerReference(piHoleCluster, desired, r.Scheme); err != nil {
+	_, err := utils.UpsertResource(ctx, r.Client, piHoleCluster, desired, svcName, log, nil)
+	if err != nil {
 		return err
 	}
 
-	existing := &corev1.Service{}
-	if err := r.Get(ctx, types.NamespacedName{Name: svcName, Namespace: piHoleCluster.Namespace}, existing); err != nil {
-		if apierrors.IsNotFound(err) {
-			return r.Create(ctx, desired)
-		}
-		return err
-	}
-
-	if !reflect.DeepEqual(existing.Spec, desired.Spec) {
-		existing.Spec = desired.Spec
-		return r.Update(ctx, existing)
-	}
 	return nil
 }
 
@@ -686,6 +610,7 @@ func (r *Reconciler) ensurePiHoleEnvCM(ctx context.Context, piHoleCluster *suppo
 		return nil, nil
 	}
 
+	log := logf.FromContext(ctx)
 	cmName := fmt.Sprintf("%s-env", piHoleCluster.Name)
 
 	desired := &corev1.ConfigMap{
@@ -696,26 +621,10 @@ func (r *Reconciler) ensurePiHoleEnvCM(ctx context.Context, piHoleCluster *suppo
 		Data: piHoleCluster.Spec.Config.EnvVars,
 	}
 
-	if err := ctrl.SetControllerReference(piHoleCluster, desired, r.Scheme); err != nil {
+	cm, err := utils.UpsertResource(ctx, r.Client, piHoleCluster, desired, cmName, log, nil)
+	if err != nil {
 		return nil, err
 	}
 
-	existing := &corev1.ConfigMap{}
-	if err := r.Get(ctx, types.NamespacedName{Name: cmName, Namespace: piHoleCluster.Namespace}, existing); err != nil {
-		if apierrors.IsNotFound(err) {
-			if err := r.Create(ctx, desired); err != nil {
-				return nil, err
-			}
-			return desired, nil
-		}
-		return nil, err
-	}
-
-	if !reflect.DeepEqual(existing.Data, desired.Data) {
-		existing.Data = desired.Data
-		if err := r.Update(ctx, existing); err != nil {
-			return nil, err
-		}
-	}
-	return existing, nil
+	return cm.(*corev1.ConfigMap), nil
 }
