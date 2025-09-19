@@ -318,24 +318,52 @@ func (r *Reconciler) ensureReadOnlySTS(ctx context.Context, piHoleCluster *suppo
 	return nil
 }
 
-// areROPodsReady reports whether at least one RO pod is Ready.
+// areROPodsReady reports whether the read‑only StatefulSet has at least one pod that is fully ready.
+// The original logic only inspected the pod list and returned true as soon as a pod had a Ready condition,
+// which caused the operator to think the cluster was ready immediately after the StatefulSet
+// was created.  The new logic checks that the StatefulSet reports ready replicas and
+// ensures that all desired replicas are in a Ready state.
 func (r *Reconciler) areROPodsReady(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (bool, error) {
+	// 1️⃣ Get the read‑only StatefulSet.
+	stsName := fmt.Sprintf("%s-ro", piHoleCluster.Name)
+	ss := &appsv1.StatefulSet{}
+	if err := r.Get(ctx, types.NamespacedName{Namespace: piHoleCluster.Namespace, Name: stsName}, ss); err != nil {
+		if apierrors.IsNotFound(err) { // StatefulSet not yet created
+			return false, nil
+		}
+		return false, fmt.Errorf("unable to get RO statefulset %s: %w", stsName, err)
+	}
+
+	// 2️⃣ Wait until the StatefulSet reports at least one ready replica.
+	if ss.Status.ReadyReplicas == 0 {
+		return false, nil
+	}
+
+	// 3️⃣ Verify that every replica pod is actually ready.
 	podList := &corev1.PodList{}
-	if err := r.List(ctx, podList, client.InNamespace(piHoleCluster.Namespace), client.MatchingLabels{"app.kubernetes.io/name": "pihole",
-		"app.kubernetes.io/instance":  piHoleCluster.Name,
-		"supporterino.de/pihole-role": "readonly"}); err != nil {
+	if err := r.List(ctx, podList,
+		client.InNamespace(piHoleCluster.Namespace),
+		client.MatchingLabels{
+			"app.kubernetes.io/name":      "pihole",
+			"app.kubernetes.io/instance":  piHoleCluster.Name,
+			"supporterino.de/pihole-role": "readonly",
+		}); err != nil {
 		return false, fmt.Errorf("list RO pods: %w", err)
 	}
 
 	if len(podList.Items) == 0 {
 		return false, nil
 	}
+
+	readyCount := 0
 	for _, p := range podList.Items {
 		if utils.IsPodReady(&p) {
-			return true, nil
+			readyCount++
 		}
 	}
-	return false, nil
+
+	// 4️⃣ All desired replicas must be ready.
+	return readyCount == int(*ss.Spec.Replicas), nil
 }
 
 // --------------------

@@ -38,12 +38,17 @@ import (
 
 const finalizerName = "piholecluster.supporterino.de/finalizer"
 
+type ApiClientEntry struct {
+	client *pihole_api.APIClient
+	ip     string // last known IP for this pod
+}
+
 type Reconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
 	// One APIClient per pod (keyed by the pod name)
-	ApiClients map[string]*pihole_api.APIClient
+	ApiClients map[string]*ApiClientEntry // key: pod name
 
 	currentClusterName string
 }
@@ -187,11 +192,11 @@ func (r *Reconciler) handleDelete(ctx context.Context, cluster *supporterinodev1
 	log := logf.FromContext(ctx)
 
 	// Close all API clients
-	for name, cli := range r.ApiClients {
-		cli.Close()
+	for name, pod := range r.ApiClients {
+		pod.client.Close()
 		log.Info("closed API client for pod.", "pod", name)
 	}
-	r.ApiClients = make(map[string]*pihole_api.APIClient)
+	r.ApiClients = make(map[string]*ApiClientEntry)
 
 	// Remove finalizer
 	cluster.Finalizers = utils.RemoveString(cluster.Finalizers, finalizerName)

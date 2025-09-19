@@ -109,26 +109,45 @@ func (r *Reconciler) performConfigSync(ctx context.Context, cluster *supporterin
 // ---------------------------------------------------------------------------
 // API client management
 // ---------------------------------------------------------------------------
-
 func (r *Reconciler) syncAPIClients(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
-	// 1️⃣ List all pods that belong to the StatefulSet
+	log := logf.FromContext(ctx)
+
+	// 1️⃣ List all Pi‑Hole pods
 	podList := &corev1.PodList{}
-	if err := r.List(ctx, podList, client.InNamespace(piHoleCluster.Namespace), client.MatchingLabels(map[string]string{
-		"app.kubernetes.io/name": "pihole",
-	})); err != nil {
+	if err := r.List(ctx, podList,
+		client.InNamespace(piHoleCluster.Namespace),
+		client.MatchingLabels(map[string]string{"app.kubernetes.io/name": "pihole"})); err != nil {
 		return fmt.Errorf("listing pihole pods: %w", err)
 	}
+	log.V(1).Info(fmt.Sprintf("found %d pihole pod(s)", len(podList.Items)))
 
-	// 2️⃣ For each pod that is ready, create / refresh the client
+	// 2️⃣ Create / refresh a client for every ready pod
 	for _, p := range podList.Items {
-		if !utils.IsPodReady(&p) { // skip not‑ready pods
+		if !utils.IsPodReady(&p) { // skip pods that are not ready
+			log.V(1).Info("skipping pod – not ready", "pod", p.Name)
 			continue
 		}
 
-		baseURL := fmt.Sprintf("http://%s", p.Status.PodIP)
-
-		if _, ok := r.ApiClients[p.Name]; ok { // reuse existing client
+		ip := p.Status.PodIP
+		if ip == "" {
+			log.V(1).Info("skipping pod – no IP yet", "pod", p.Name)
 			continue
+		}
+
+		baseURL := fmt.Sprintf("http://%s", ip)
+
+		entry, exists := r.ApiClients[p.Name]
+		if exists && entry.ip == ip {
+			// same pod + same IP – nothing to do
+			log.V(1).Info("re‑using existing client", "pod", p.Name, "ip", ip)
+			continue
+		}
+
+		// Either this is a new pod or the IP has changed.
+		if exists {
+			log.V(1).Info("pod restarted – recreating client", "pod", p.Name, "oldIP", entry.ip, "newIP", ip)
+			// Close the old client if it has a Close() method
+			entry.client.Close()
 		}
 
 		secret, err := r.getAPISecret(ctx, piHoleCluster)
@@ -137,14 +156,18 @@ func (r *Reconciler) syncAPIClients(ctx context.Context, piHoleCluster *supporte
 		}
 		password := string(secret.Data["password"])
 
-		apiClient := pihole_api.NewAPIClient(baseURL, password, 10*time.Second, // request timeout
-			true, // skipTLSVerification – set to true if you use self‑signed certs
-			ctx)
+		apiClient := pihole_api.NewAPIClient(
+			baseURL, password,
+			10*time.Second, // request timeout
+			true,           // skipTLSVerification – true if you use self‑signed certs
+			ctx,
+		)
 
-		r.ApiClients[p.Name] = apiClient
+		r.ApiClients[p.Name] = &ApiClientEntry{client: apiClient, ip: ip}
+		log.V(1).Info("created/updated API client", "pod", p.Name, "ip", ip)
 	}
 
-	// 3️⃣ Clean up clients for pods that no longer exist
+	// 3️⃣ Remove clients for pods that no longer exist
 	for name := range r.ApiClients {
 		found := false
 		for _, p := range podList.Items {
@@ -154,7 +177,12 @@ func (r *Reconciler) syncAPIClients(ctx context.Context, piHoleCluster *supporte
 			}
 		}
 		if !found {
+			entry := r.ApiClients[name]
 			delete(r.ApiClients, name)
+			if entry.client != nil {
+				entry.client.Close()
+			}
+			log.V(1).Info("removed stale API client", "pod", name)
 		}
 	}
 
@@ -164,11 +192,11 @@ func (r *Reconciler) syncAPIClients(ctx context.Context, piHoleCluster *supporte
 // Read‑write client (the RW pod is always <stsName-rw>-0)
 func (r *Reconciler) ReadWriteAPIClient() (*pihole_api.APIClient, error) {
 	rwPod := fmt.Sprintf("%s-rw-0", r.clusterName()) // clusterName() returns the CR name
-	apiClient, ok := r.ApiClients[rwPod]
+	pod, ok := r.ApiClients[rwPod]
 	if !ok {
 		return nil, fmt.Errorf("read‑write API client %s not found", rwPod)
 	}
-	return apiClient, nil
+	return pod.client, nil
 }
 
 // Read‑only clients (all RO pods)
@@ -176,9 +204,9 @@ func (r *Reconciler) ReadOnlyAPIClients() ([]*pihole_api.APIClient, error) {
 	var ro []*pihole_api.APIClient
 	prefix := fmt.Sprintf("%s-ro-", r.clusterName())
 
-	for name, apiClient := range r.ApiClients {
+	for name, pod := range r.ApiClients {
 		if strings.HasPrefix(name, prefix) {
-			ro = append(ro, apiClient)
+			ro = append(ro, pod.client)
 		}
 	}
 

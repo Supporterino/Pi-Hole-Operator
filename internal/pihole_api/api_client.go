@@ -213,6 +213,9 @@ func (c *APIClient) DownloadTeleporter(ctx context.Context) ([]byte, error) {
 
 // UploadTeleporter posts the binary to /api/teleporter on a read‑only pod.
 // The caller provides the byte slice that was downloaded from the RW replica.
+//
+// A retry loop with exponential back‑off is added so that a transient
+// “connection refused” or similar error does not immediately cause the whole sync to fail.
 func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
 	if err := c.ensureAuth(); err != nil {
 		return fmt.Errorf("auth: %w", err)
@@ -221,47 +224,76 @@ func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
 	url := c.BaseURL + "/api/teleporter"
 	c.logger.V(1).Info(fmt.Sprintf("POST teleporter to %s", url))
 
-	// Build a multipart/form‑data body with the binary under the "teleporter" key
+	// ---------- build the multipart body ----------
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
-	// Create the form file field.  Use a .zip filename and set its MIME type.
 	part, err := writer.CreateFormFile("file", "teleporter.zip")
 	if err != nil {
 		return fmt.Errorf("create form file: %w", err)
 	}
-	//part.Header.Set("Content-Type", "application/zip")
 	if _, err := part.Write(data); err != nil {
 		return fmt.Errorf("write data to form file: %w", err)
 	}
-
 	if err := writer.Close(); err != nil {
 		return fmt.Errorf("close multipart writer: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
-	if err != nil {
-		return fmt.Errorf("new request: %w", err)
-	}
-	req.Header.Set("X-FTL-SID", c.sessionID)
+	// ---------- retry parameters ----------
+	const (
+		maxRetries     = 3                      // total attempts = maxRetries + 1
+		initialBackoff = 500 * time.Millisecond // first wait
+		maxBackoff     = 5 * time.Second        // cap on back‑off
+	)
 
-	// Content‑Type must include the multipart boundary
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	backOff := initialBackoff
 
-	resp, err := c.Client.Do(req)
-	if err != nil {
-		return fmt.Errorf("POST teleporter: %w", err)
-	}
-	defer func(body io.ReadCloser) {
-		if err := body.Close(); err != nil {
-			c.logger.Error(err, "Failed to close response body.")
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
+		if err != nil {
+			return fmt.Errorf("new request: %w", err) // not retriable – bail out
 		}
-	}(resp.Body)
+		req.Header.Set("X-FTL-SID", c.sessionID)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("POST teleporter status %d", resp.StatusCode)
+		resp, err := c.Client.Do(req)
+		if err == nil {
+			// Successful request – check the status code
+			defer func(Body io.ReadCloser) {
+				err := Body.Close()
+				if err != nil {
+					c.logger.Error(err, "Failed to close response body.")
+				}
+			}(resp.Body)
+			if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
+				return nil
+			}
+			err = fmt.Errorf("POST teleporter status %d", resp.StatusCode)
+		}
+
+		// If this was the last attempt, return the error.
+		if attempt == maxRetries {
+			return fmt.Errorf("upload failed after %d attempts: %w", attempt+1, err)
+		}
+
+		// Log the failure and wait before retrying.
+		c.logger.V(1).Info("upload failed – retrying", "attempt", attempt+1, "error", err)
+		time.Sleep(backOff)
+
+		// Double the back‑off for next try, but never exceed maxBackoff.
+		backOff *= 2
+		if backOff > maxBackoff {
+			backOff = maxBackoff
+		}
+
+		// Reset the buffer so that we can re‑send the multipart body.
+		buf.Reset()
+		if err := writer.WriteField("file", "teleporter.zip"); err == nil {
+			writer.Close()
+		}
 	}
-	return nil
+
+	return fmt.Errorf("unreachable – should never get here")
 }
 
 // Close cleans up resources used by the API client
