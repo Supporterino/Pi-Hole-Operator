@@ -31,12 +31,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
 	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
 	"supporterino.de/pihole/internal/pihole_api"
 	"supporterino.de/pihole/internal/utils"
 )
-
-const finalizerName = "piholecluster.supporterino.de/finalizer"
 
 type ApiClientEntry struct {
 	client *pihole_api.APIClient
@@ -70,18 +69,24 @@ type Reconciler struct {
 // Reconcile ----------------------------------------------------------------
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+	log.Info("Reconciling PiHoleCluster", "namespace", req.Namespace, "name", req.Name)
+
 	// 0️⃣ Fetch the PiHoleCluster instance
 	piHoleCluster := &supporterinodev1alpha1.PiHoleCluster{}
 	if err := r.Get(ctx, req.NamespacedName, piHoleCluster); err != nil {
 		if apierrors.IsNotFound(err) {
+			log.Info("PiHoleCluster not found, it may have been deleted")
 			return ctrl.Result{}, nil // deleted
 		}
 		return ctrl.Result{}, fmt.Errorf("failed to get PiHoleCluster: %w", err)
 	}
+	log.V(1).Info("Fetched PiHoleCluster object")
 
 	// 1️⃣ Add finalizer if missing
-	if !utils.ContainsString(piHoleCluster.Finalizers, finalizerName) {
-		piHoleCluster.Finalizers = append(piHoleCluster.Finalizers, finalizerName)
+	if !utils.ContainsString(piHoleCluster.Finalizers, finalizer) {
+		log.V(1).Info("Adding finalizer to PiHoleCluster")
+		piHoleCluster.Finalizers = append(piHoleCluster.Finalizers, finalizer)
 		if err := r.Update(ctx, piHoleCluster); err != nil {
 			return ctrl.Result{}, fmt.Errorf("adding finalizer: %w", err)
 		}
@@ -106,22 +111,26 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	// 2️⃣ Ensure the API‑password secret is available
+	log.V(1).Info("Ensuring API password secret")
 	if _, err := r.ensureAPISecret(ctx, piHoleCluster); err != nil {
 		return ctrl.Result{}, fmt.Errorf("ensureAPISecret: %w", err)
 	}
 
 	// 3️⃣ Ensure the PVC for the read‑write PiHole pod
+	log.V(1).Info("Ensuring PVC for RW pod")
 	if _, err := r.ensurePiHolePVC(ctx, piHoleCluster); err != nil {
 		return ctrl.Result{}, fmt.Errorf("ensurePiHolePVC: %w", err)
 	}
 
 	// 4️⃣ Create / update the read‑write StatefulSet
+	log.V(1).Info("Ensuring RW StatefulSet")
 	if err := r.ensureReadWriteSTS(ctx, piHoleCluster); err != nil {
 		return ctrl.Result{}, fmt.Errorf("ensureReadWriteSTS: %w", err)
 	}
 
 	// 5️⃣ Create / update the read‑only StatefulSet (if replicas > 0)
 	if piHoleCluster.Spec.Replicas > 0 {
+		log.V(1).Info("Checking readiness of RW pods before creating RO")
 		ready, err := r.areRWPodsReady(ctx, piHoleCluster)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("checking RW pod readiness: %w", err)
@@ -129,6 +138,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if !ready {
 			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 		}
+
+		log.V(1).Info("Ensuring RO StatefulSet")
 		if err := r.ensureReadOnlySTS(ctx, piHoleCluster); err != nil {
 			return ctrl.Result{}, fmt.Errorf("ensureReadOnlySTS: %w", err)
 		}
@@ -136,6 +147,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	// 6️⃣ Sync API clients and perform configuration sync
 	if piHoleCluster.Spec.Sync != nil && piHoleCluster.Spec.Replicas > 0 {
+		log.V(1).Info("Checking readiness of RO pods before sync")
 		ready, err := r.areROPodsReady(ctx, piHoleCluster)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("checking RO pod readiness: %w", err)
@@ -144,9 +156,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 		}
 
+		log.V(1).Info("Syncing API clients")
 		if err := r.syncAPIClients(ctx, piHoleCluster); err != nil {
 			return ctrl.Result{}, fmt.Errorf("sync API clients: %w", err)
 		}
+		log.V(1).Info("Performing configuration sync")
 		if err := r.performConfigSync(ctx, piHoleCluster); err != nil {
 			return ctrl.Result{}, fmt.Errorf("perform config sync: %w", err)
 		}
@@ -154,6 +168,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	// 7️⃣ Ingress
 	if piHoleCluster.Spec.Ingress != nil && piHoleCluster.Spec.Ingress.Enabled {
+		log.V(1).Info("Ensuring Ingress")
 		if err := r.ensureIngress(ctx, piHoleCluster); err != nil {
 			return ctrl.Result{}, fmt.Errorf("ensureIngress: %w", err)
 		}
@@ -162,12 +177,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// 8️⃣ PodMonitor
 	if piHoleCluster.Spec.Monitoring != nil && piHoleCluster.Spec.Monitoring.PodMonitor != nil &&
 		piHoleCluster.Spec.Monitoring.PodMonitor.Enabled {
+		log.V(1).Info("Ensuring PodMonitor")
 		if err := r.ensurePodMonitor(ctx, piHoleCluster); err != nil {
 			return ctrl.Result{}, fmt.Errorf("ensurePodMonitor: %w", err)
 		}
 	}
 
 	// 9️⃣ DNS Service
+	log.V(1).Info("Ensuring DNS service")
 	if err := r.ensureDNSService(ctx, piHoleCluster); err != nil {
 		return ctrl.Result{}, fmt.Errorf("ensureDNSService: %w", err)
 	}
@@ -178,11 +195,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			return ctrl.Result{}, fmt.Errorf("update status: %w", err)
 		}
 	} else {
-		if err := r.updateStatus(ctx, piHoleCluster, false, fmt.Sprintf("resourcesReady check failed: %v", err)); err != nil {
+		if err := r.updateStatus(ctx, piHoleCluster, false,
+			fmt.Sprintf("resourcesReady check failed: %v", err)); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update status: %w", err)
 		}
 	}
 
+	log.V(0).Info("Reconciliation complete for PiHoleCluster", "name", piHoleCluster.Name)
 	return ctrl.Result{}, nil
 }
 
@@ -194,12 +213,13 @@ func (r *Reconciler) handleDelete(ctx context.Context, cluster *supporterinodev1
 	// Close all API clients
 	for name, pod := range r.ApiClients {
 		pod.client.Close()
-		log.Info("closed API client for pod.", "pod", name)
+		log.Info("Closed API client for pod", "pod", name)
 	}
 	r.ApiClients = make(map[string]*ApiClientEntry)
 
 	// Remove finalizer
-	cluster.Finalizers = utils.RemoveString(cluster.Finalizers, finalizerName)
+	log.Info("Removing finalizer from PiHoleCluster")
+	cluster.Finalizers = utils.RemoveString(cluster.Finalizers, finalizer)
 	if err := r.Update(ctx, cluster); err != nil {
 		return ctrl.Result{}, fmt.Errorf("removing finalizer: %w", err)
 	}

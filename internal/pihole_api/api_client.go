@@ -58,7 +58,7 @@ type backoffConfig struct {
 
 // retryWithBackoff runs fn repeatedly until it succeeds or we exhaust the
 // number of attempts.  On each failure it waits an exponentially increasing
-// interval (capped by cfg.Max).  The function logs each retry attempt.
+// interval (capped by cfg.Max). The function logs each retry attempt.
 func retryWithBackoff(ctx context.Context, log logr.Logger, cfg backoffConfig, fn retryFunc) error {
 	// We make a copy of the config so we can modify backOff.
 	backOff := cfg.Initial
@@ -133,11 +133,14 @@ func (c *APIClient) Authenticate() error {
 			return fmt.Errorf("failed to marshal authentication payload: %w", err)
 		}
 
-		c.logger.V(1).Info(fmt.Sprintf("Authenticating to %s", c.BaseURL))
+		// Log the authentication attempt – this is helpful when multiple
+		// clients are created, and you want to see which instance is trying.
+		c.logger.V(1).Info("Authenticating", "url", url)
 
 		resp, err := c.Client.Post(url, "application/json", bytes.NewBuffer(jsonPayload))
 		if err != nil {
-			c.logger.V(1).Info(fmt.Sprintf("Authentication request failed. Error: %v", err))
+			// The error is non‑retryable – we log it and return.
+			c.logger.V(1).Info("POST authentication request failed")
 			return fmt.Errorf("authentication request failed: %w", err)
 		}
 		defer func() {
@@ -146,6 +149,9 @@ func (c *APIClient) Authenticate() error {
 			}
 		}()
 
+		// Log the status code – a 4xx/5xx is very likely to be a mis‑config
+		// that you want to see in the logs.
+		c.logger.V(1).Info("Authentication response", "statusCode", resp.StatusCode)
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("authentication failed, status code: %d", resp.StatusCode)
 		}
@@ -164,10 +170,11 @@ func (c *APIClient) Authenticate() error {
 			return fmt.Errorf("authentication unsuccessful")
 		}
 
-		// Success – set the session data
+		// Successful authentication – log the session id length to avoid
+		// leaking secrets while still confirming that we received a token.
 		c.sessionID = authResp.Session.SID
 		c.validity = time.Now().Add(time.Duration(authResp.Session.Validity) * time.Second)
-		c.logger.V(1).Info("Authentication successful")
+		c.logger.V(1).Info("Authentication successful", "sessionIDLength", len(c.sessionID))
 		return nil
 	}
 
@@ -207,7 +214,9 @@ func (c *APIClient) FetchData(endpoint string, result interface{}) error {
 	}
 
 	url := fmt.Sprintf("%s%s", c.BaseURL, endpoint)
-	c.logger.V(1).Info(fmt.Sprintf("Fetching data from %s", url))
+	// Log the request – useful when you want to see which endpoints are
+	// hit frequently or if something goes wrong.
+	c.logger.V(1).Info("Fetching data", "url", url)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -233,6 +242,8 @@ func (c *APIClient) FetchData(endpoint string, result interface{}) error {
 	}()
 
 	if resp.StatusCode != http.StatusOK {
+		// Log the status code – a non‑200 usually means something is wrong
+		c.logger.V(1).Info("FetchData response", "statusCode", resp.StatusCode)
 		return fmt.Errorf("non-200 status code: %d", resp.StatusCode)
 	}
 
@@ -245,7 +256,8 @@ func (c *APIClient) FetchData(endpoint string, result interface{}) error {
 		return fmt.Errorf("failed to parse JSON response: %w", err)
 	}
 
-	c.logger.V(1).Info("Successfully fetched data from endpoint: %s", endpoint)
+	// Log success with the number of bytes decoded – handy for troubleshooting
+	c.logger.V(1).Info("Fetched data successfully", "endpoint", endpoint, "bytesRead", len(body))
 	return nil
 }
 
@@ -257,7 +269,7 @@ func (c *APIClient) DownloadTeleporter(ctx context.Context) ([]byte, error) {
 	}
 
 	url := c.BaseURL + "/api/teleporter"
-	c.logger.V(1).Info(fmt.Sprintf("GET teleporter from %s", url))
+	c.logger.V(1).Info("Downloading teleporter", "url", url)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -277,14 +289,16 @@ func (c *APIClient) DownloadTeleporter(ctx context.Context) ([]byte, error) {
 	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
+		c.logger.V(1).Info("DownloadTeleporter response", "statusCode", resp.StatusCode)
 		return nil, fmt.Errorf("GET teleporter status %d", resp.StatusCode)
 	}
 
-	// Read the whole body – it is a binary file, so no limit needed.
+	// Read the entire body (binary) – we log its size for diagnostics.
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read teleporter body: %w", err)
 	}
+	c.logger.V(1).Info("Teleporter downloaded successfully", "bytesRead", len(data))
 	return data, nil
 }
 
@@ -301,7 +315,7 @@ func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
 	}
 
 	url := c.BaseURL + "/api/teleporter"
-	c.logger.V(1).Info(fmt.Sprintf("POST teleporter to %s", url))
+	c.logger.V(1).Info("Uploading teleporter", "url", url, "bytesToSend", len(data))
 
 	// --------------------------------------------------------------------
 	// Build the multipart payload once.
@@ -322,7 +336,7 @@ func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
 	}
 
 	// --------------------------------------------------------------------
-	// Retry configuration.
+	// Retry configuration – same back‑off as Authenticate().
 	// --------------------------------------------------------------------
 	cfg := backoffConfig{
 		MaxRetries: 5, // total attempts = 4
@@ -331,7 +345,7 @@ func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
 	}
 
 	// --------------------------------------------------------------------
-	// The operation we want to retry.
+	// Operation that will be retried on transient failures.
 	// --------------------------------------------------------------------
 	doUpload := func() error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url,
@@ -352,6 +366,8 @@ func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
 			}
 		}()
 
+		// Log the status code – non‑2xx indicates a problem.
+		c.logger.V(1).Info("UploadTeleporter response", "statusCode", resp.StatusCode)
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 			return fmt.Errorf("POST teleporter status %d", resp.StatusCode)
 		}
@@ -359,14 +375,14 @@ func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
 	}
 
 	// --------------------------------------------------------------------
-	// Execute the operation with exponential back‑off.
+	// Retry with exponential back‑off and log each attempt
 	// --------------------------------------------------------------------
 	return retryWithBackoff(ctx, c.logger, cfg, doUpload)
 }
 
 // Close cleans up resources used by the API client
 func (c *APIClient) Close() {
-	// Close the transport to ensure no connection leaks
+	// Close the underlying HTTP transport to avoid leaking idle connections.
 	if transport, ok := c.Client.Transport.(*http.Transport); ok {
 		transport.CloseIdleConnections()
 	}

@@ -8,6 +8,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -24,60 +25,73 @@ import (
 // Resource readiness checks
 // ---------------------------------------------------------------------------
 
-func (r *Reconciler) resourcesReady(ctx context.Context, piholecluster *supporterinodev1alpha1.PiHoleCluster) (bool, error) {
+func (r *Reconciler) resourcesReady(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (bool, error) {
+	log := logf.FromContext(ctx)
+	log.V(1).Info("Checking resource readiness", "cluster", piHoleCluster.Name)
+
 	// 1️⃣ RW StatefulSet
 	rwSTS := &appsv1.StatefulSet{}
-	if err := r.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-rw", piholecluster.Name), Namespace: piholecluster.Namespace}, rwSTS); err != nil {
-		return false, apierrors.NewNotFound(schema.ParseGroupResource(rwSTS.GroupVersionKind().String()), fmt.Sprintf("%s-rw", piholecluster.Name))
+	if err := r.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-rw", piHoleCluster.Name), Namespace: piHoleCluster.Namespace}, rwSTS); err != nil {
+		log.Error(err, "RW StatefulSet not found", "name", fmt.Sprintf("%s-rw", piHoleCluster.Name))
+		return false, apierrors.NewNotFound(schema.ParseGroupResource(rwSTS.GroupVersionKind().String()), fmt.Sprintf("%s-rw", piHoleCluster.Name))
 	}
 	if rwSTS.Status.ReadyReplicas != 1 {
+		log.V(1).Info("RW StatefulSet not ready", "readyReplicas", rwSTS.Status.ReadyReplicas)
 		return false, nil
 	}
 
 	// 2️⃣ RO StatefulSet (if any)
-	if piholecluster.Spec.Sync != nil && piholecluster.Spec.Replicas > 0 {
+	if piHoleCluster.Spec.Sync != nil && piHoleCluster.Spec.Replicas > 0 {
 		roSTS := &appsv1.StatefulSet{}
-		if err := r.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-ro", piholecluster.Name), Namespace: piholecluster.Namespace}, roSTS); err != nil {
-			return false, apierrors.NewNotFound(schema.ParseGroupResource(roSTS.GroupVersionKind().String()), fmt.Sprintf("%s-ro", piholecluster.Name))
+		if err := r.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-ro", piHoleCluster.Name), Namespace: piHoleCluster.Namespace}, roSTS); err != nil {
+			log.Error(err, "RO StatefulSet not found", "name", fmt.Sprintf("%s-ro", piHoleCluster.Name))
+			return false, apierrors.NewNotFound(schema.ParseGroupResource(roSTS.GroupVersionKind().String()), fmt.Sprintf("%s-ro", piHoleCluster.Name))
 		}
-		if roSTS.Status.ReadyReplicas != piholecluster.Spec.Replicas {
+		if roSTS.Status.ReadyReplicas != piHoleCluster.Spec.Replicas {
+			log.V(1).Info("RO StatefulSet not ready", "readyReplicas", roSTS.Status.ReadyReplicas)
 			return false, nil
 		}
 	}
 
 	// 3️⃣ PVC
 	pvc := &corev1.PersistentVolumeClaim{}
-	if err := r.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-data", piholecluster.Name), Namespace: piholecluster.Namespace}, pvc); err != nil {
-		return false, apierrors.NewNotFound(schema.ParseGroupResource(pvc.GroupVersionKind().String()), fmt.Sprintf("%s-data", piholecluster.Name))
+	if err := r.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-data", piHoleCluster.Name), Namespace: piHoleCluster.Namespace}, pvc); err != nil {
+		log.Error(err, "PVC not found", "name", fmt.Sprintf("%s-data", piHoleCluster.Name))
+		return false, apierrors.NewNotFound(schema.ParseGroupResource(pvc.GroupVersionKind().String()), fmt.Sprintf("%s-data", piHoleCluster.Name))
 	}
 	if pvc.Status.Phase != corev1.ClaimBound {
+		log.V(1).Info("PVC not bound", "phase", pvc.Status.Phase)
 		return false, nil
 	}
 
 	// 4️⃣ DNS Service
 	svc := &corev1.Service{}
-	if err := r.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-dns", piholecluster.Name), Namespace: piholecluster.Namespace}, svc); err != nil {
-		return false, apierrors.NewNotFound(schema.ParseGroupResource(svc.GroupVersionKind().String()), fmt.Sprintf("%s-dns", piholecluster.Name))
+	if err := r.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-dns", piHoleCluster.Name), Namespace: piHoleCluster.Namespace}, svc); err != nil {
+		log.Error(err, "DNS service not found", "name", fmt.Sprintf("%s-dns", piHoleCluster.Name))
+		return false, apierrors.NewNotFound(schema.ParseGroupResource(svc.GroupVersionKind().String()), fmt.Sprintf("%s-dns", piHoleCluster.Name))
 	}
 
 	// 5️⃣ Ingress (if enabled)
-	if piholecluster.Spec.Ingress != nil && piholecluster.Spec.Ingress.Enabled {
+	if piHoleCluster.Spec.Ingress != nil && piHoleCluster.Spec.Ingress.Enabled {
 		ing := &networkingv1.Ingress{}
-		if err := r.Get(ctx, types.NamespacedName{Name: piholecluster.Name, Namespace: piholecluster.Namespace}, ing); err != nil {
-			return false, apierrors.NewNotFound(schema.ParseGroupResource(ing.GroupVersionKind().String()), piholecluster.Name)
+		if err := r.Get(ctx, types.NamespacedName{Name: piHoleCluster.Name, Namespace: piHoleCluster.Namespace}, ing); err != nil {
+			log.Error(err, "Ingress not found", "name", piHoleCluster.Name)
+			return false, apierrors.NewNotFound(schema.ParseGroupResource(ing.GroupVersionKind().String()), piHoleCluster.Name)
 		}
 	}
 
 	// 6️⃣ PodMonitor (if enabled)
-	if piholecluster.Spec.Monitoring != nil &&
-		piholecluster.Spec.Monitoring.PodMonitor != nil &&
-		piholecluster.Spec.Monitoring.PodMonitor.Enabled {
+	if piHoleCluster.Spec.Monitoring != nil &&
+		piHoleCluster.Spec.Monitoring.PodMonitor != nil &&
+		piHoleCluster.Spec.Monitoring.PodMonitor.Enabled {
 		pm := &monitoringv1.PodMonitor{}
-		if err := r.Get(ctx, types.NamespacedName{Name: piholecluster.Name, Namespace: piholecluster.Namespace}, pm); err != nil {
-			return false, apierrors.NewNotFound(schema.ParseGroupResource(pm.GroupVersionKind().String()), piholecluster.Name)
+		if err := r.Get(ctx, types.NamespacedName{Name: piHoleCluster.Name, Namespace: piHoleCluster.Namespace}, pm); err != nil {
+			log.Error(err, "PodMonitor not found", "name", piHoleCluster.Name)
+			return false, apierrors.NewNotFound(schema.ParseGroupResource(pm.GroupVersionKind().String()), piHoleCluster.Name)
 		}
 	}
 
+	log.V(1).Info("All resources are ready")
 	return true, nil
 }
 
@@ -86,6 +100,9 @@ func (r *Reconciler) resourcesReady(ctx context.Context, piholecluster *supporte
 // ---------------------------------------------------------------------------
 
 func (r *Reconciler) updateStatus(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster, ready bool, errMsg string) error {
+	log := logf.FromContext(ctx)
+	log.Info("Updating status", "cluster", piHoleCluster.Name, "ready", ready)
+
 	// 1️⃣ Update fields
 	piHoleCluster.Status.ResourcesReady = ready
 	piHoleCluster.Status.LastError = errMsg
@@ -108,17 +125,28 @@ func (r *Reconciler) updateStatus(ctx context.Context, piHoleCluster *supporteri
 
 	// 3️⃣ Persist the status
 	if err := r.Status().Update(ctx, piHoleCluster); err != nil {
+		log.Error(err, "Failed to update status")
 		return fmt.Errorf("status update failed: %w", err)
 	}
+	log.V(1).Info("Status updated successfully")
 	return nil
 }
 
 func (r *Reconciler) updateConfigSynced(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster, synced bool) error {
+	log := logf.FromContext(ctx)
+	log.V(1).Info("Updating ConfigSynced status", "cluster", piHoleCluster.Name, "synced", synced)
+
 	// Fetch the latest version to avoid race conditions
 	if err := r.Get(ctx, ctrlclient.ObjectKeyFromObject(piHoleCluster), piHoleCluster); err != nil {
+		log.Error(err, "Failed to refetch CR for status update")
 		return fmt.Errorf("refetching CR for status update: %w", err)
 	}
 
 	piHoleCluster.Status.ConfigSynced = synced
-	return r.Status().Update(ctx, piHoleCluster)
+	if err := r.Status().Update(ctx, piHoleCluster); err != nil {
+		log.Error(err, "Failed to update ConfigSynced status")
+		return fmt.Errorf("failed to update ConfigSynced status: %w", err)
+	}
+	log.V(1).Info("ConfigSynced status updated")
+	return nil
 }

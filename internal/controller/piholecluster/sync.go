@@ -26,39 +26,41 @@ var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month 
 
 func (r *Reconciler) performConfigSync(ctx context.Context, cluster *supporterinodev1alpha1.PiHoleCluster) error {
 	log := logf.FromContext(ctx)
+	log.Info("Starting configuration sync", "cluster", cluster.Name)
 
 	// 1️⃣ Build a map of existing RO pods
 	podList := &corev1.PodList{}
-	if err := r.List(ctx, podList, client.InNamespace(cluster.Namespace), client.MatchingLabels(map[string]string{
-		"app.kubernetes.io/instance":  cluster.Name,
-		"app.kubernetes.io/name":      "pihole",
-		"supporterino.de/pihole-role": "readonly",
-	})); err != nil {
+	if err := r.List(ctx, podList,
+		client.InNamespace(cluster.Namespace),
+		client.MatchingLabels(map[string]string{
+			"app.kubernetes.io/instance":  cluster.Name,
+			"app.kubernetes.io/name":      "pihole",
+			"supporterino.de/pihole-role": "readonly",
+		})); err != nil {
 		return fmt.Errorf("listing RO pods: %w", err)
 	}
 	podMap := make(map[string]*corev1.Pod)
 	for i := range podList.Items {
-		//podMap[podList.Items[i].Name] = &podList.Items[i]
 		podMap[fmt.Sprintf("http://%s", podList.Items[i].Status.PodIP)] = &podList.Items[i]
 	}
+	log.V(1).Info("Found RO pods", "count", len(podMap))
 
 	// 2️⃣ Detect pods that need a sync
 	var podsNeedingSync []string
-	log.V(1).Info("syncing pods", "count", len(podMap))
 	for podName, pod := range podMap {
-		log.V(1).Info("syncing pod", "pod", pod.Name, "uid", pod.GetUID())
 		if !r.isPodSynced(cluster, pod.Name, pod.GetUID()) {
 			podsNeedingSync = append(podsNeedingSync, podName)
 		}
 	}
+	log.V(1).Info("Pods needing sync", "count", len(podsNeedingSync))
 
 	runSync := len(podsNeedingSync) > 0 || r.shouldSyncNow(cluster.Spec.Sync.Cron, cluster.Status.LastSyncTime)
 
 	if !runSync {
-		log.Info(fmt.Sprintf("config sync not needed (cron=%q, newPods=%d)", cluster.Spec.Sync.Cron, len(podsNeedingSync)))
+		log.Info("Config sync not required", "cron", cluster.Spec.Sync.Cron, "newPods", len(podsNeedingSync))
 		return nil
 	}
-	log.Info(fmt.Sprintf("running config sync (cron=%q, newPods=%d)", cluster.Spec.Sync.Cron, len(podsNeedingSync)))
+	log.Info("Running config sync", "cron", cluster.Spec.Sync.Cron, "newPods", len(podsNeedingSync))
 
 	// 3️⃣ Read‑write client
 	rwClient, err := r.ReadWriteAPIClient()
@@ -75,6 +77,7 @@ func (r *Reconciler) performConfigSync(ctx context.Context, cluster *supporterin
 		log.Error(err, "download teleporter")
 		return fmt.Errorf("download teleporter: %w", err)
 	}
+	log.V(1).Info("Teleporter binary downloaded")
 
 	// 5️⃣ Upload to every RO pod that needs it
 	roClients, err := r.ReadOnlyAPIClients()
@@ -92,7 +95,7 @@ func (r *Reconciler) performConfigSync(ctx context.Context, cluster *supporterin
 			log.Error(err, "upload to pod failed", "pod", roClient.BaseURL)
 		} else {
 			r.addPodSynced(cluster, pod.Name, pod.UID)
-			log.Info(fmt.Sprintf("teleporter sync succeeded for %s", roClient.BaseURL))
+			log.Info("Teleporter sync succeeded for", "pod", roClient.BaseURL)
 		}
 	}
 
@@ -102,15 +105,17 @@ func (r *Reconciler) performConfigSync(ctx context.Context, cluster *supporterin
 	if err := r.Status().Update(ctx, cluster); err != nil {
 		log.V(1).Info(fmt.Sprintf("failed to update sync status: %v", err))
 	}
-
+	log.Info("Configuration sync completed successfully")
 	return nil
 }
 
 // ---------------------------------------------------------------------------
 // API client management
 // ---------------------------------------------------------------------------
+
 func (r *Reconciler) syncAPIClients(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
 	log := logf.FromContext(ctx)
+	log.Info("Syncing API clients", "cluster", piHoleCluster.Name)
 
 	// 1️⃣ List all Pi‑Hole pods
 	podList := &corev1.PodList{}
@@ -138,15 +143,13 @@ func (r *Reconciler) syncAPIClients(ctx context.Context, piHoleCluster *supporte
 
 		entry, exists := r.ApiClients[p.Name]
 		if exists && entry.ip == ip {
-			// same pod + same IP – nothing to do
 			log.V(1).Info("re‑using existing client", "pod", p.Name, "ip", ip)
 			continue
 		}
 
-		// Either this is a new pod or the IP has changed.
 		if exists {
-			log.V(1).Info("pod restarted – recreating client", "pod", p.Name, "oldIP", entry.ip, "newIP", ip)
-			// Close the old client if it has a Close() method
+			log.V(1).Info("pod restarted – recreating client",
+				"pod", p.Name, "oldIP", entry.ip, "newIP", ip)
 			entry.client.Close()
 		}
 
