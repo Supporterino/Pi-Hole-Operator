@@ -9,6 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"supporterino.de/pihole/internal/utils"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -16,16 +17,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
-	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
-
-	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
+	supporterinodev1 "supporterino.de/pihole/api/v1"
 )
 
 // ---------------------------------------------------------------------------
 // Resource readiness checks
 // ---------------------------------------------------------------------------
 
-func (r *Reconciler) resourcesReady(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (bool, error) {
+func (r *Reconciler) resourcesReady(ctx context.Context, piHoleCluster *supporterinodev1.PiHoleCluster) (bool, error) {
 	log := logf.FromContext(ctx)
 	log.V(1).Info("Checking resource readiness", "cluster", piHoleCluster.Name)
 
@@ -99,7 +98,7 @@ func (r *Reconciler) resourcesReady(ctx context.Context, piHoleCluster *supporte
 // Status helpers
 // ---------------------------------------------------------------------------
 
-func (r *Reconciler) updateStatus(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster, ready bool, errMsg string) error {
+func (r *Reconciler) updateStatus(ctx context.Context, piHoleCluster *supporterinodev1.PiHoleCluster, ready bool, errMsg string) error {
 	log := logf.FromContext(ctx)
 	log.Info("Updating status", "cluster", piHoleCluster.Name, "ready", ready)
 
@@ -124,29 +123,9 @@ func (r *Reconciler) updateStatus(ctx context.Context, piHoleCluster *supporteri
 	}
 
 	// 3️⃣ Persist the status
-	if err := r.Status().Update(ctx, piHoleCluster); err != nil {
-		log.Error(err, "Failed to update status")
+	if err := utils.UpdateClusterStatusWithRetry(ctx, r.Client, piHoleCluster, log); err != nil {
 		return fmt.Errorf("status update failed: %w", err)
 	}
 	log.V(1).Info("Status updated successfully")
-	return nil
-}
-
-func (r *Reconciler) updateConfigSynced(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster, synced bool) error {
-	log := logf.FromContext(ctx)
-	log.V(1).Info("Updating ConfigSynced status", "cluster", piHoleCluster.Name, "synced", synced)
-
-	// Fetch the latest version to avoid race conditions
-	if err := r.Get(ctx, ctrlclient.ObjectKeyFromObject(piHoleCluster), piHoleCluster); err != nil {
-		log.Error(err, "Failed to refetch CR for status update")
-		return fmt.Errorf("refetching CR for status update: %w", err)
-	}
-
-	piHoleCluster.Status.ConfigSynced = synced
-	if err := r.Status().Update(ctx, piHoleCluster); err != nil {
-		log.Error(err, "Failed to update ConfigSynced status")
-		return fmt.Errorf("failed to update ConfigSynced status: %w", err)
-	}
-	log.V(1).Info("ConfigSynced status updated")
 	return nil
 }

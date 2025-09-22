@@ -10,14 +10,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-supporterino-de-v1alpha1-piholecluster
+      path: /mutate-supporterino-de-v1-piholecluster
   failurePolicy: Fail
-  name: mpiholecluster-v1alpha1.kb.io
+  name: mpiholecluster-v1.kb.io
   rules:
   - apiGroups:
     - supporterino.de
     apiVersions:
-    - v1alpha1
+      - v1
     operations:
     - CREATE
     - UPDATE
@@ -36,14 +36,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-supporterino-de-v1alpha1-piholecluster
+      path: /validate-supporterino-de-v1-piholecluster
   failurePolicy: Fail
-  name: vpiholecluster-v1alpha1.kb.io
+  name: vpiholecluster-v1.kb.io
   rules:
   - apiGroups:
     - supporterino.de
     apiVersions:
-    - v1alpha1
+      - v1
     operations:
     - CREATE
     - UPDATE

@@ -14,27 +14,27 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1
 
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
+	supporterinodev1 "supporterino.de/pihole/api/v1"
 	// TODO (user): Add any additional imports if needed
 )
 
 var _ = Describe("PiHoleCluster Webhook", func() {
 	var (
-		obj       *supporterinodev1alpha1.PiHoleCluster
-		oldObj    *supporterinodev1alpha1.PiHoleCluster
+		obj       *supporterinodev1.PiHoleCluster
+		oldObj    *supporterinodev1.PiHoleCluster
 		validator PiHoleClusterCustomValidator
 		defaulter PiHoleClusterCustomDefaulter
 	)
 
 	BeforeEach(func() {
-		obj = &supporterinodev1alpha1.PiHoleCluster{}
-		oldObj = &supporterinodev1alpha1.PiHoleCluster{}
+		obj = &supporterinodev1.PiHoleCluster{}
+		oldObj = &supporterinodev1.PiHoleCluster{}
 		validator = PiHoleClusterCustomValidator{}
 		Expect(validator).NotTo(BeNil(), "Expected validator to be initialized")
 		defaulter = PiHoleClusterCustomDefaulter{}

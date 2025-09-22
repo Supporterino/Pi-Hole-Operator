@@ -21,14 +21,14 @@ import (
 
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 
-	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
+	supporterinodev1 "supporterino.de/pihole/api/v1"
 	"supporterino.de/pihole/internal/utils"
 )
 
 // --------------------
 // RW StatefulSet
 // --------------------
-func (r *Reconciler) ensureReadWriteSTS(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (r *Reconciler) ensureReadWriteSTS(ctx context.Context, piHoleCluster *supporterinodev1.PiHoleCluster) error {
 	log := logf.FromContext(ctx)
 	stsName := fmt.Sprintf("%s-rw", piHoleCluster.Name)
 
@@ -152,7 +152,7 @@ func (r *Reconciler) ensureReadWriteSTS(ctx context.Context, piHoleCluster *supp
 }
 
 // areRWPodsReady reports whether at least one RW pod is Ready.
-func (r *Reconciler) areRWPodsReady(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (bool, error) {
+func (r *Reconciler) areRWPodsReady(ctx context.Context, piHoleCluster *supporterinodev1.PiHoleCluster) (bool, error) {
 	podList := &corev1.PodList{}
 	if err := r.List(ctx, podList, client.InNamespace(piHoleCluster.Namespace), client.MatchingLabels{"app.kubernetes.io/name": "pihole",
 		"app.kubernetes.io/instance":  piHoleCluster.Name,
@@ -174,7 +174,7 @@ func (r *Reconciler) areRWPodsReady(ctx context.Context, piHoleCluster *supporte
 // --------------------
 // RO StatefulSet
 // --------------------
-func (r *Reconciler) ensureReadOnlySTS(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (r *Reconciler) ensureReadOnlySTS(ctx context.Context, piHoleCluster *supporterinodev1.PiHoleCluster) error {
 	if piHoleCluster.Spec.Replicas <= 0 {
 		return nil
 	}
@@ -299,7 +299,7 @@ func (r *Reconciler) ensureReadOnlySTS(ctx context.Context, piHoleCluster *suppo
 // which caused the operator to think the cluster was ready immediately after the StatefulSet
 // was created.  The new logic checks that the StatefulSet reports ready replicas and
 // ensures that all desired replicas are in a Ready state.
-func (r *Reconciler) areROPodsReady(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (bool, error) {
+func (r *Reconciler) areROPodsReady(ctx context.Context, piHoleCluster *supporterinodev1.PiHoleCluster) (bool, error) {
 	// 1️⃣ Get the read‑only StatefulSet.
 	stsName := fmt.Sprintf("%s-ro", piHoleCluster.Name)
 	ss := &appsv1.StatefulSet{}
@@ -343,7 +343,7 @@ func (r *Reconciler) areROPodsReady(ctx context.Context, piHoleCluster *supporte
 // --------------------
 // API Secret
 // --------------------
-func (r *Reconciler) ensureAPISecret(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (*corev1.Secret, error) {
+func (r *Reconciler) ensureAPISecret(ctx context.Context, piHoleCluster *supporterinodev1.PiHoleCluster) (*corev1.Secret, error) {
 	if piHoleCluster.Spec.Config == nil ||
 		(piHoleCluster.Spec.Config.APIPassword.Password == "" && piHoleCluster.Spec.Config.APIPassword.SecretRef == nil) {
 		return nil, nil
@@ -383,7 +383,7 @@ func (r *Reconciler) ensureAPISecret(ctx context.Context, piHoleCluster *support
 	return secret.(*corev1.Secret), nil
 }
 
-func (r *Reconciler) getAPISecret(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (*corev1.Secret, error) {
+func (r *Reconciler) getAPISecret(ctx context.Context, piHoleCluster *supporterinodev1.PiHoleCluster) (*corev1.Secret, error) {
 	if piHoleCluster.Spec.Config != nil && piHoleCluster.Spec.Config.APIPassword.SecretRef != nil {
 		secret := &corev1.Secret{}
 		if err := r.Get(ctx, types.NamespacedName{
@@ -409,7 +409,7 @@ func (r *Reconciler) getAPISecret(ctx context.Context, piHoleCluster *supporteri
 // --------------------
 // PersistentVolumeClaim for PiHole data
 // --------------------
-func (r *Reconciler) ensurePiHolePVC(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (*corev1.PersistentVolumeClaim, error) {
+func (r *Reconciler) ensurePiHolePVC(ctx context.Context, piHoleCluster *supporterinodev1.PiHoleCluster) (*corev1.PersistentVolumeClaim, error) {
 	log := logf.FromContext(ctx)
 
 	pvcName := fmt.Sprintf("%s-data", piHoleCluster.Name)
@@ -473,7 +473,7 @@ func (r *Reconciler) ensurePiHolePVC(ctx context.Context, piHoleCluster *support
 // --------------------
 // PodMonitor
 // --------------------
-func (r *Reconciler) ensurePodMonitor(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (r *Reconciler) ensurePodMonitor(ctx context.Context, piHoleCluster *supporterinodev1.PiHoleCluster) error {
 	if piHoleCluster.Spec.Monitoring == nil ||
 		piHoleCluster.Spec.Monitoring.PodMonitor == nil ||
 		!piHoleCluster.Spec.Monitoring.PodMonitor.Enabled {
@@ -516,7 +516,7 @@ func (r *Reconciler) ensurePodMonitor(ctx context.Context, piHoleCluster *suppor
 // --------------------
 // Ingress
 // --------------------
-func (r *Reconciler) ensureIngress(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (r *Reconciler) ensureIngress(ctx context.Context, piHoleCluster *supporterinodev1.PiHoleCluster) error {
 	if piHoleCluster.Spec.Ingress == nil || !piHoleCluster.Spec.Ingress.Enabled {
 		return nil
 	}
@@ -569,7 +569,7 @@ func (r *Reconciler) ensureIngress(ctx context.Context, piHoleCluster *supporter
 // --------------------
 // DNS Service
 // --------------------
-func (r *Reconciler) ensureDNSService(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (r *Reconciler) ensureDNSService(ctx context.Context, piHoleCluster *supporterinodev1.PiHoleCluster) error {
 	log := logf.FromContext(ctx)
 	svcName := fmt.Sprintf("%s-dns", piHoleCluster.Name)
 
@@ -605,7 +605,7 @@ func (r *Reconciler) ensureDNSService(ctx context.Context, piHoleCluster *suppor
 // --------------------
 // EnvConfigMap
 // --------------------
-func (r *Reconciler) ensurePiHoleEnvCM(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) (*corev1.ConfigMap, error) {
+func (r *Reconciler) ensurePiHoleEnvCM(ctx context.Context, piHoleCluster *supporterinodev1.PiHoleCluster) (*corev1.ConfigMap, error) {
 	if piHoleCluster.Spec.Config == nil || len(piHoleCluster.Spec.Config.EnvVars) == 0 {
 		return nil, nil
 	}

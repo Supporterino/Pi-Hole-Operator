@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -32,6 +33,18 @@ type authResponse struct {
 		SID      string `json:"sid"`
 		Validity int    `json:"validity"`
 	} `json:"session"`
+}
+
+// AdList represents a single ad‑list entry that PiHole exposes.
+type AdList struct {
+	Address string  `json:"address"`
+	ID      int     `json:"id,omitempty"`
+	Comment *string `json:"comment,omitempty"`
+}
+
+// listsResponse is the JSON shape returned by /api/lists.
+type listsResponse struct {
+	Lists []AdList `json:"lists"`
 }
 
 const (
@@ -348,8 +361,7 @@ func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
 	// Operation that will be retried on transient failures.
 	// --------------------------------------------------------------------
 	doUpload := func() error {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url,
-			bytes.NewReader(payload.Bytes()))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload.Bytes()))
 		if err != nil {
 			return fmt.Errorf("new request: %w", err) // not retriable – bail out
 		}
@@ -378,6 +390,102 @@ func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
 	// Retry with exponential back‑off and log each attempt
 	// --------------------------------------------------------------------
 	return retryWithBackoff(ctx, c.logger, cfg, doUpload)
+}
+
+// ---------------------------------------------------------------------------
+// APIClient helpers – fetch /api/lists
+// ---------------------------------------------------------------------------
+
+// GetAdLists retrieves the current list of ad‑lists from the PiHole instance.
+func (c *APIClient) GetAdLists() ([]AdList, error) {
+	url := fmt.Sprintf("%s/api/lists", c.BaseURL)
+
+	if err := c.ensureAuth(); err != nil {
+		return nil, fmt.Errorf("auth: %w", err)
+	}
+
+	resp, err := c.Client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("GET %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GET %s returned status %d", url, resp.StatusCode)
+	}
+
+	var r listsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", url, err)
+	}
+
+	return r.Lists, nil
+}
+
+// PostAdList creates a new ad‑list with the given address.
+func (c *APIClient) PostAdList(ctx context.Context, addr string) error {
+	url := fmt.Sprintf("%s/api/lists", c.BaseURL)
+
+	if err := c.ensureAuth(); err != nil {
+		return fmt.Errorf("auth: %w", err)
+	}
+
+	payload := map[string]interface{}{
+		"address": addr,
+		"type":    "block",
+		"comment": "Created by PiHole operator",
+		"groups":  []int{0},
+		"enabled": true,
+	}
+	body, _ := json.Marshal(payload)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("create POST request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return fmt.Errorf("POST %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("POST %s returned status %d", url, resp.StatusCode)
+	}
+
+	return nil
+}
+
+// DeleteAdList removes an ad‑list identified by its *address*.
+// The PiHole API expects the address to be URL‑escaped and a query
+// parameter `type=block` (the type that was used when the list was created).
+func (c *APIClient) DeleteAdList(ctx context.Context, addr string) error {
+	// Encode the address as required by PiHole
+	encoded := url.QueryEscape(addr)
+	urlStr := fmt.Sprintf("%s/api/lists/%s?type=block", c.BaseURL, encoded)
+
+	if err := c.ensureAuth(); err != nil {
+		return fmt.Errorf("auth: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, urlStr, nil)
+	if err != nil {
+		return fmt.Errorf("create DELETE request: %w", err)
+	}
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return fmt.Errorf("DELETE %s: %w", urlStr, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("DELETE %s returned status %d", urlStr, resp.StatusCode)
+	}
+
+	return nil
 }
 
 // Close cleans up resources used by the API client

@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
+	supporterinodev1 "supporterino.de/pihole/api/v1"
 	"supporterino.de/pihole/internal/pihole_api"
 	"supporterino.de/pihole/internal/utils"
 )
@@ -73,7 +73,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	log.Info("Reconciling PiHoleCluster", "namespace", req.Namespace, "name", req.Name)
 
 	// 0️⃣ Fetch the PiHoleCluster instance
-	piHoleCluster := &supporterinodev1alpha1.PiHoleCluster{}
+	piHoleCluster := &supporterinodev1.PiHoleCluster{}
 	if err := r.Get(ctx, req.NamespacedName, piHoleCluster); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Info("PiHoleCluster not found, it may have been deleted")
@@ -207,7 +207,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 // Finalizer handling -------------------------------------------------------
 
-func (r *Reconciler) handleDelete(ctx context.Context, cluster *supporterinodev1alpha1.PiHoleCluster) (ctrl.Result, error) {
+func (r *Reconciler) handleDelete(ctx context.Context, cluster *supporterinodev1.PiHoleCluster) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	// Close all API clients
@@ -235,7 +235,7 @@ func (r *Reconciler) clusterName() string { return r.currentClusterName }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&supporterinodev1alpha1.PiHoleCluster{}).
+		For(&supporterinodev1.PiHoleCluster{}).
 		Named("piholecluster").
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Service{}).

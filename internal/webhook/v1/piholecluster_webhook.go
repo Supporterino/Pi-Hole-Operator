@@ -1,4 +1,4 @@
-// internal/webhook/v1alpha1/piholecluster_webhook.go
+// internal/webhook/v1/piholecluster_webhook.go
 
 /*
 Copyright 2025.
@@ -13,7 +13,7 @@ Copyright 2025.
 	See the License for the specific language governing permissions and
 	limitations under the License.
 */
-package v1alpha1
+package v1
 
 import (
 	"context"
@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
+	supporterinodev1 "supporterino.de/pihole/api/v1"
 )
 
 // log is for logging in this package.
@@ -40,13 +40,13 @@ var piholeclusterlog = logf.Log.WithName("piholecluster-resource")
 // SetupPiHoleClusterWebhookWithManager registers the webhook for PiHoleCluster in the manager.
 func SetupPiHoleClusterWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(&supporterinodev1alpha1.PiHoleCluster{}).
+		For(&supporterinodev1.PiHoleCluster{}).
 		WithValidator(&PiHoleClusterCustomValidator{}).
 		WithDefaulter(&PiHoleClusterCustomDefaulter{}).
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-supporterino-de-v1alpha1-piholecluster,mutating=true,failurePolicy=fail,sideEffects=None,groups=supporterino.de,resources=piholeclusters,verbs=create;update,versions=v1alpha1,name=mpiholecluster-v1alpha1.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-supporterino-de-v1-piholecluster,mutating=true,failurePolicy=fail,sideEffects=None,groups=supporterino.de,resources=piholeclusters,verbs=create;update,versions=v1,name=mpiholecluster-v1.kb.io,admissionReviewVersions=v1
 
 // PiHoleClusterCustomDefaulter sets default values on the custom resource of the Kind PiHoleCluster.
 type PiHoleClusterCustomDefaulter struct{}
@@ -56,7 +56,7 @@ var _ webhook.CustomDefaulter = &PiHoleClusterCustomDefaulter{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind PiHoleCluster.
 func (d *PiHoleClusterCustomDefaulter) Default(_ context.Context, obj runtime.Object) error {
-	piholecluster, ok := obj.(*supporterinodev1alpha1.PiHoleCluster)
+	piholecluster, ok := obj.(*supporterinodev1.PiHoleCluster)
 	if !ok {
 		return fmt.Errorf("expected a PiHoleCluster object but got %T", obj)
 	}
@@ -67,7 +67,7 @@ func (d *PiHoleClusterCustomDefaulter) Default(_ context.Context, obj runtime.Ob
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate-supporterino-de-v1alpha1-piholecluster,mutating=false,failurePolicy=fail,sideEffects=None,groups=supporterino.de,resources=piholeclusters,verbs=create;update,versions=v1alpha1,name=vpiholecluster-v1alpha1.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-supporterino-de-v1-piholecluster,mutating=false,failurePolicy=fail,sideEffects=None,groups=supporterino.de,resources=piholeclusters,verbs=create;update,versions=v1,name=vpiholecluster-v1.kb.io,admissionReviewVersions=v1
 
 // PiHoleClusterCustomValidator validates the PiHoleCluster resource.
 type PiHoleClusterCustomValidator struct{}
@@ -77,7 +77,7 @@ var _ webhook.CustomValidator = &PiHoleClusterCustomValidator{}
 
 // ValidateCreate implements webhook.CustomValidator.
 func (v *PiHoleClusterCustomValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	piholecluster, ok := obj.(*supporterinodev1alpha1.PiHoleCluster)
+	piholecluster, ok := obj.(*supporterinodev1.PiHoleCluster)
 	if !ok {
 		return nil, fmt.Errorf("expected a PiHoleCluster object but got %T", obj)
 	}
@@ -97,7 +97,7 @@ func (v *PiHoleClusterCustomValidator) ValidateCreate(_ context.Context, obj run
 
 // ValidateUpdate implements webhook.CustomValidator.
 func (v *PiHoleClusterCustomValidator) ValidateUpdate(_ context.Context, _ runtime.Object, newObj runtime.Object) (admission.Warnings, error) {
-	piholecluster, ok := newObj.(*supporterinodev1alpha1.PiHoleCluster)
+	piholecluster, ok := newObj.(*supporterinodev1.PiHoleCluster)
 	if !ok {
 		return nil, fmt.Errorf("expected a PiHoleCluster object for the newObj but got %T", newObj)
 	}
@@ -117,7 +117,7 @@ func (v *PiHoleClusterCustomValidator) ValidateUpdate(_ context.Context, _ runti
 
 // ValidateDelete implements webhook.CustomValidator.
 func (v *PiHoleClusterCustomValidator) ValidateDelete(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	piholecluster, ok := obj.(*supporterinodev1alpha1.PiHoleCluster)
+	piholecluster, ok := obj.(*supporterinodev1.PiHoleCluster)
 	if !ok {
 		return nil, fmt.Errorf("expected a PiHoleCluster object but got %T", obj)
 	}
@@ -132,7 +132,7 @@ func (v *PiHoleClusterCustomValidator) ValidateDelete(_ context.Context, obj run
 /* Validation helpers                                                        */
 /* -------------------------------------------------------------------------- */
 
-func (v *PiHoleClusterCustomValidator) validateIngress(piholecluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (v *PiHoleClusterCustomValidator) validateIngress(piholecluster *supporterinodev1.PiHoleCluster) error {
 	spec := piholecluster.Spec
 	if spec.Ingress == nil || !spec.Ingress.Enabled {
 		return nil // nothing to validate
@@ -151,7 +151,7 @@ func (v *PiHoleClusterCustomValidator) validateIngress(piholecluster *supporteri
 	return nil
 }
 
-func (v *PiHoleClusterCustomValidator) validateCron(piholecluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (v *PiHoleClusterCustomValidator) validateCron(piholecluster *supporterinodev1.PiHoleCluster) error {
 	spec := piholecluster.Spec
 	if spec.Sync == nil || spec.Sync.Cron == "" {
 		return nil // CRD already enforces MinLength=1
@@ -163,7 +163,7 @@ func (v *PiHoleClusterCustomValidator) validateCron(piholecluster *supporterinod
 	return nil
 }
 
-func (v *PiHoleClusterCustomValidator) validateMonitoring(piholecluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (v *PiHoleClusterCustomValidator) validateMonitoring(piholecluster *supporterinodev1.PiHoleCluster) error {
 	spec := piholecluster.Spec
 	if spec.Monitoring == nil || (spec.Monitoring.PodMonitor == nil && spec.Monitoring.Exporter == nil) {
 		return nil // nothing to validate

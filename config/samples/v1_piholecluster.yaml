@@ -1,4 +1,4 @@
-apiVersion: supporterino.de/v1alpha1
+apiVersion: supporterino.de/v1
 kind: PiHoleCluster
 metadata:
   labels:
@@ -8,7 +8,7 @@ metadata:
 spec:
   replicas: 2
   sync:
-    cron: 0 0 * * *
+    cron: 0 1 * * *
   monitoring:
     exporter:
       enabled: true
@@ -19,6 +19,9 @@ spec:
   config:
     apiPassword:
       password: 123456abc
+    adLists:
+      - https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/popupads.txt
+      - https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/doh-vpn-proxy-bypass.txt
     env:
       TZ: Europe/Berlin
       FTLCONF_dns_upstreams: 10.2.0.1

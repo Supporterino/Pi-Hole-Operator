@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
+	supporterinodev1 "supporterino.de/pihole/api/v1"
 	"supporterino.de/pihole/internal/pihole_api"
 	"supporterino.de/pihole/internal/utils"
 )
@@ -24,7 +24,7 @@ var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month 
 // Configuration sync
 // ---------------------------------------------------------------------------
 
-func (r *Reconciler) performConfigSync(ctx context.Context, cluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (r *Reconciler) performConfigSync(ctx context.Context, cluster *supporterinodev1.PiHoleCluster) error {
 	log := logf.FromContext(ctx)
 	log.Info("Starting configuration sync", "cluster", cluster.Name)
 
@@ -54,7 +54,7 @@ func (r *Reconciler) performConfigSync(ctx context.Context, cluster *supporterin
 	}
 	log.V(1).Info("Pods needing sync", "count", len(podsNeedingSync))
 
-	runSync := len(podsNeedingSync) > 0 || r.shouldSyncNow(cluster.Spec.Sync.Cron, cluster.Status.LastSyncTime)
+	runSync := len(podsNeedingSync) > 0 || r.shouldSyncNow(cluster.Spec.Sync.Cron, cluster.Status.LastConfigSyncTime)
 
 	if !runSync {
 		log.Info("Config sync not required", "cron", cluster.Spec.Sync.Cron, "newPods", len(podsNeedingSync))
@@ -101,11 +101,142 @@ func (r *Reconciler) performConfigSync(ctx context.Context, cluster *supporterin
 
 	// 6️⃣ Update status
 	cluster.Status.ConfigSynced = true
-	cluster.Status.LastSyncTime = metav1.Now()
-	if err := r.Status().Update(ctx, cluster); err != nil {
+	cluster.Status.LastConfigSyncTime = metav1.Now()
+	if err := utils.UpdateClusterStatusWithRetry(ctx, r.Client, cluster, log); err != nil {
 		log.V(1).Info(fmt.Sprintf("failed to update sync status: %v", err))
 	}
 	log.Info("Configuration sync completed successfully")
+
+	// 7️⃣ Sync ad‑lists if enabled
+	if cluster.Spec.Sync.AdLists && len(cluster.Spec.Config.AdLists) > 0 {
+		log.Info("Starting ad-list sync", "cluster", cluster.Name)
+		if err := r.syncAdLists(ctx, cluster); err != nil {
+			return fmt.Errorf("sync ad lists: %w", err)
+		}
+
+		// 6️⃣ Update status
+		cluster.Status.AdListSynced = true
+		cluster.Status.LastAdListSyncTime = metav1.Now()
+		if err := utils.UpdateClusterStatusWithRetry(ctx, r.Client, cluster, log); err != nil {
+			log.V(1).Info(fmt.Sprintf("failed to update sync status: %v", err))
+		}
+
+		log.Info("Configuration sync completed successfully")
+	}
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Ad‑list sync
+// ---------------------------------------------------------------------------
+
+func (r *Reconciler) syncAdLists(ctx context.Context, cluster *supporterinodev1.PiHoleCluster) error {
+	log := logf.FromContext(ctx)
+
+	// ------------------------------------------------------------
+	// 1️⃣ Get RW client & the *current* list after any creations
+	// ------------------------------------------------------------
+	rwClient, err := r.ReadWriteAPIClient()
+	if err != nil {
+		return fmt.Errorf("read‑write client unavailable: %w", err)
+	}
+
+	// First ensure all CRD URLs exist on RW
+	crdAddrs := make(map[string]struct{}, len(cluster.Spec.Config.AdLists))
+	for _, addr := range cluster.Spec.Config.AdLists {
+		crdAddrs[addr] = struct{}{}
+	}
+
+	// Create missing lists on RW
+	rwLists, err := rwClient.GetAdLists()
+	if err != nil {
+		return fmt.Errorf("fetching ad‑lists from RW: %w", err)
+	}
+	existing := make(map[string]struct{}, len(rwLists))
+	for _, l := range rwLists {
+		existing[l.Address] = struct{}{}
+	}
+	for addr := range crdAddrs {
+		if _, ok := existing[addr]; !ok {
+			log.V(1).Info("Adding ad-list to RW replica", "addr", addr)
+			if err := rwClient.PostAdList(ctx, addr); err != nil {
+				return fmt.Errorf("posting ad‑list %s to RW: %w", addr, err)
+			}
+		}
+	}
+
+	// After creation fetch the *updated* RW list
+	updatedRW, err := rwClient.GetAdLists()
+	if err != nil {
+		return fmt.Errorf("refetching ad‑lists from RW: %w", err)
+	}
+
+	// ------------------------------------------------------------
+	// 2️⃣ Delete any operator‑created lists that are no longer in CRD
+	// ------------------------------------------------------------
+	for _, l := range updatedRW {
+		if l.Comment != nil && *l.Comment == "Created by PiHole operator" {
+			if _, ok := crdAddrs[l.Address]; !ok {
+				log.V(1).Info("Deleting ad-list from RW replica", "addr", l.Address)
+				if err := rwClient.DeleteAdList(ctx, l.Address); err != nil {
+					return fmt.Errorf("deleting ad‑list %s from RW: %w", l.Address, err)
+				}
+			}
+		}
+	}
+
+	// ------------------------------------------------------------
+	// 3️⃣ Sync the RO clients to match the *final* RW list
+	// ------------------------------------------------------------
+	rwList, err := rwClient.GetAdLists()
+	if err != nil {
+		return fmt.Errorf("fetching ad‑lists from RW: %w", err)
+	}
+	finalRW := make(map[string]struct{}, len(rwList))
+	for _, l := range rwList {
+		finalRW[l.Address] = struct{}{}
+	}
+
+	roClients, err := r.ReadOnlyAPIClients()
+	if err != nil {
+		return fmt.Errorf("listing read‑only clients: %w", err)
+	}
+
+	for _, ro := range roClients {
+		// 3a) Ensure all CRD URLs exist on this RO
+		roLists, err := ro.GetAdLists()
+		if err != nil {
+			return fmt.Errorf("fetching ad‑lists from RO: %w", err)
+		}
+		roExisting := make(map[string]struct{}, len(roLists))
+		for _, l := range roLists {
+			roExisting[l.Address] = struct{}{}
+		}
+		for addr := range finalRW {
+			if _, ok := roExisting[addr]; !ok {
+				if err := ro.PostAdList(ctx, addr); err != nil {
+					log.V(1).Info("Adding ad-list to RO replica", "addr", addr, "instance", ro.BaseURL)
+					return fmt.Errorf("posting ad‑list %s to RO: %w", addr, err)
+				}
+			}
+		}
+
+		// 3b) Delete any operator‑created lists that are no longer in the RW replica
+		roLists, err = ro.GetAdLists()
+		if err != nil {
+			return fmt.Errorf("refetching ad‑lists from RO: %w", err)
+		}
+		for _, l := range roLists {
+			if _, ok := finalRW[l.Address]; !ok {
+				log.V(1).Info("Deleting ad-list from RO replica", "addr", l.Address, "instance", ro.BaseURL)
+				if err := ro.DeleteAdList(ctx, l.Address); err != nil {
+					return fmt.Errorf("deleting ad‑list %s from RO: %w", l.Address, err)
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -113,7 +244,7 @@ func (r *Reconciler) performConfigSync(ctx context.Context, cluster *supporterin
 // API client management
 // ---------------------------------------------------------------------------
 
-func (r *Reconciler) syncAPIClients(ctx context.Context, piHoleCluster *supporterinodev1alpha1.PiHoleCluster) error {
+func (r *Reconciler) syncAPIClients(ctx context.Context, piHoleCluster *supporterinodev1.PiHoleCluster) error {
 	log := logf.FromContext(ctx)
 	log.Info("Syncing API clients", "cluster", piHoleCluster.Name)
 
@@ -244,7 +375,7 @@ func (r *Reconciler) shouldSyncNow(cronExpr string, lastSync metav1.Time) bool {
 // Pod sync status helpers
 // ---------------------------------------------------------------------------
 
-func (r *Reconciler) isPodSynced(cluster *supporterinodev1alpha1.PiHoleCluster, podName string, uid types.UID) bool {
+func (r *Reconciler) isPodSynced(cluster *supporterinodev1.PiHoleCluster, podName string, uid types.UID) bool {
 	for _, s := range cluster.Status.SyncedPods {
 		if s.Name == podName && s.UID == uid {
 			return true
@@ -253,9 +384,9 @@ func (r *Reconciler) isPodSynced(cluster *supporterinodev1alpha1.PiHoleCluster, 
 	return false
 }
 
-func (r *Reconciler) addPodSynced(cluster *supporterinodev1alpha1.PiHoleCluster, podName string, uid types.UID) {
+func (r *Reconciler) addPodSynced(cluster *supporterinodev1.PiHoleCluster, podName string, uid types.UID) {
 	if r.isPodSynced(cluster, podName, uid) {
 		return
 	}
-	cluster.Status.SyncedPods = append(cluster.Status.SyncedPods, supporterinodev1alpha1.SyncedPod{Name: podName, UID: uid})
+	cluster.Status.SyncedPods = append(cluster.Status.SyncedPods, supporterinodev1.SyncedPod{Name: podName, UID: uid})
 }

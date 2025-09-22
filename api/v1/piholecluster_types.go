@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1
 
 import (
 	corev1 "k8s.io/api/core/v1"
@@ -99,7 +99,7 @@ type SyncSpec struct {
 	//
 	// +kubebuilder:validation:Required
 	// +kubebuilder:default=true
-	AdLists bool `json:"adlists"`
+	AdLists bool `json:"adLists"`
 }
 
 // MonitoringSpec defines optional monitoring configuration for a PiHoleCluster.
@@ -155,6 +155,12 @@ type ConfigSpec struct {
 	//
 	// +optional
 	EnvVars map[string]string `json:"env,omitempty"`
+
+	// AdLists holds an optional array of URLs that the operator should keep in sync.
+	// The list is created with type “block”, comment “Created by PiHole operator”
+	// and groups `[0]`.  It is only processed when `spec.sync.adlists` is true.
+	// +kubebuilder:validation:Optional
+	AdLists []string `json:"adLists,omitempty"`
 }
 
 // APIPassword holds either a plain string or a reference to an existing secret.
@@ -213,13 +219,21 @@ type PiHoleClusterStatus struct {
 	//
 	// +kubebuilder:validation:Optional
 	ConfigSynced bool `json:"configSynced,omitempty"`
+	// AdListSynced indicates that the latest ad-list has been
+	// successfully pushed to all replicas.
+	//
+	// +kubebuilder:validation:Optional
+	AdListSynced bool `json:"adListSynced,omitempty"`
 	// SyncedPods lists the names of all RO pods that have already
 	// received the latest configuration.  A pod that is not listed
 	// will trigger a sync when it becomes ready.
 	SyncedPods []SyncedPod `json:"syncedPods,omitempty"`
 	// LastSyncTime records the last time a sync was performed.
 	// It is used to evaluate the cron schedule.
-	LastSyncTime metav1.Time `json:"lastSyncTime,omitempty"`
+	LastConfigSyncTime metav1.Time `json:"lastConfigSyncTime,omitempty"`
+	// LastSyncTime records the last time a sync was performed.
+	// It is used to evaluate the cron schedule.
+	LastAdListSyncTime metav1.Time `json:"lastAdListSyncTime,omitempty"`
 	// LastError holds the most recent error message that caused ResourcesReady to be false.
 	//
 	// +optional

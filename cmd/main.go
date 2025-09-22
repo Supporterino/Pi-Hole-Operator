@@ -35,8 +35,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"supporterino.de/pihole/internal/controller/piholecluster"
 
-	supporterinodev1alpha1 "supporterino.de/pihole/api/v1alpha1"
-	webhookv1alpha1 "supporterino.de/pihole/internal/webhook/v1alpha1"
+	supporterinodev1 "supporterino.de/pihole/api/v1"
+	webhookv1 "supporterino.de/pihole/internal/webhook/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -48,7 +48,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(supporterinodev1alpha1.AddToScheme(scheme))
+	utilruntime.Must(supporterinodev1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -181,7 +181,7 @@ func main() {
 	}
 	// nolint:goconst
 	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
-		if err := webhookv1alpha1.SetupPiHoleClusterWebhookWithManager(mgr); err != nil {
+		if err := webhookv1.SetupPiHoleClusterWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "PiHoleCluster")
 			os.Exit(1)
 		}

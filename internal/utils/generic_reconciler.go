@@ -61,3 +61,23 @@ func UpsertResource(ctx context.Context, cl ctrlclient.Client, owner ctrlclient.
 
 	return existing, nil
 }
+
+// UpdateClusterStatusWithRetry updates the Status subresource of a cluster‑like object
+// and retries on conflict using controller-runtime's retry helper.
+//
+//   - ctx:      the context from the reconcile loop
+//   - c:        a controller-runtime client (must support status updates)
+//   - obj:      the object whose Status should be updated (must implement client.Object)
+//   - logger:   a logr.Logger to emit retry / failure logs
+//
+// The function returns the error returned by the last attempt (or nil if successful).
+func UpdateClusterStatusWithRetry(ctx context.Context, c ctrlclient.Client, obj ctrlclient.Object, logger logr.Logger) error {
+	return kubeutilretry.RetryOnConflict(kubeutilretry.DefaultBackoff, func() error {
+		if err := c.Status().Update(ctx, obj); err != nil {
+			logger.V(1).Info(fmt.Sprintf("failed to update status: %v", err))
+			return err
+		}
+		logger.V(1).Info("status updated successfully")
+		return nil
+	})
+}
