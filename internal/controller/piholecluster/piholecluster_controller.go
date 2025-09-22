@@ -195,8 +195,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			return ctrl.Result{}, fmt.Errorf("update status: %w", err)
 		}
 	} else {
-		if err := r.updateStatus(ctx, piHoleCluster, false,
-			fmt.Sprintf("resourcesReady check failed: %v", err)); err != nil {
+		if err := r.updateStatus(ctx, piHoleCluster, false, fmt.Sprintf("resourcesReady check failed: %v", err)); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update status: %w", err)
 		}
 	}

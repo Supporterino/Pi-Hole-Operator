@@ -220,60 +220,6 @@ func (c *APIClient) ensureAuth() error {
 	return nil
 }
 
-// FetchData makes a GET request to the specified endpoint and parses the response.
-func (c *APIClient) FetchData(endpoint string, result interface{}) error {
-	if err := c.ensureAuth(); err != nil {
-		return err
-	}
-
-	url := fmt.Sprintf("%s%s", c.BaseURL, endpoint)
-	// Log the request – useful when you want to see which endpoints are
-	// hit frequently or if something goes wrong.
-	c.logger.V(1).Info("Fetching data", "url", url)
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Add security headers
-	req.Header.Set("X-FTL-SID", c.sessionID)
-	req.Header.Set("X-Content-Type-Options", "nosniff")
-
-	ctx, cancel := context.WithTimeout(context.Background(), c.Client.Timeout)
-	defer cancel()
-	req = req.WithContext(ctx)
-
-	resp, err := c.Client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to fetch data from %s: %w", url, err)
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			c.logger.Error(err, "Failed to close response body.")
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		// Log the status code – a non‑200 usually means something is wrong
-		c.logger.V(1).Info("FetchData response", "statusCode", resp.StatusCode)
-		return fmt.Errorf("non-200 status code: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseSize)) // prevent reading too much data
-	if err != nil {
-		return fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if err := json.Unmarshal(body, result); err != nil {
-		return fmt.Errorf("failed to parse JSON response: %w", err)
-	}
-
-	// Log success with the number of bytes decoded – handy for troubleshooting
-	c.logger.V(1).Info("Fetched data successfully", "endpoint", endpoint, "bytesRead", len(body))
-	return nil
-}
-
 // DownloadTeleporter fetches the binary from /api/teleporter on the RW pod.
 // It returns a byte slice that callers can forward to other pods.
 func (c *APIClient) DownloadTeleporter(ctx context.Context) ([]byte, error) {
@@ -397,18 +343,29 @@ func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
 // ---------------------------------------------------------------------------
 
 // GetAdLists retrieves the current list of ad‑lists from the PiHole instance.
-func (c *APIClient) GetAdLists() ([]AdList, error) {
+func (c *APIClient) GetAdLists(ctx context.Context) ([]AdList, error) {
 	url := fmt.Sprintf("%s/api/lists", c.BaseURL)
 
 	if err := c.ensureAuth(); err != nil {
 		return nil, fmt.Errorf("auth: %w", err)
 	}
 
-	resp, err := c.Client.Get(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("GET %s: %w", url, err)
+		return nil, fmt.Errorf("new request: %w", err)
 	}
-	defer resp.Body.Close()
+	req.Header.Set("X-FTL-SID", c.sessionID)
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("GET ad-lists: %w", err)
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			c.logger.Error(err, "Failed to close response body.")
+		}
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GET %s returned status %d", url, resp.StatusCode)
@@ -443,6 +400,7 @@ func (c *APIClient) PostAdList(ctx context.Context, addr string) error {
 	if err != nil {
 		return fmt.Errorf("create POST request: %w", err)
 	}
+	req.Header.Set("X-FTL-SID", c.sessionID)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.Client.Do(req)
@@ -483,6 +441,33 @@ func (c *APIClient) DeleteAdList(ctx context.Context, addr string) error {
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("DELETE %s returned status %d", urlStr, resp.StatusCode)
+	}
+
+	return nil
+}
+
+// RunGravity triggers an gravity run to update ad-lists
+func (c *APIClient) RunGravity(ctx context.Context) error {
+	url := fmt.Sprintf("%s/api/action/gravity", c.BaseURL)
+
+	if err := c.ensureAuth(); err != nil {
+		return fmt.Errorf("auth: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		return fmt.Errorf("create POST request: %w", err)
+	}
+	req.Header.Set("X-FTL-SID", c.sessionID)
+
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return fmt.Errorf("POST %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("POST %s returned status %d", url, resp.StatusCode)
 	}
 
 	return nil

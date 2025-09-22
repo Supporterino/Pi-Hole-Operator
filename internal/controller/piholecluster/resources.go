@@ -26,6 +26,33 @@ import (
 )
 
 // --------------------
+// StatefulSet Helper
+// --------------------
+func defaultProbes(piHoleCluster *supporterinodev1.PiHoleCluster) {
+	if piHoleCluster.Spec.LivenessProbe == nil {
+		piHoleCluster.Spec.LivenessProbe = &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromString("http")},
+			},
+			InitialDelaySeconds: 30,
+			PeriodSeconds:       30,
+			TimeoutSeconds:      5,
+		}
+	}
+
+	if piHoleCluster.Spec.ReadinessProbe == nil {
+		piHoleCluster.Spec.ReadinessProbe = &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{Path: "/admin", Port: intstr.FromString("http")},
+			},
+			InitialDelaySeconds: 10,
+			PeriodSeconds:       10,
+			TimeoutSeconds:      2,
+		}
+	}
+}
+
+// --------------------
 // RW StatefulSet
 // --------------------
 func (r *Reconciler) ensureReadWriteSTS(ctx context.Context, piHoleCluster *supporterinodev1.PiHoleCluster) error {
@@ -79,31 +106,43 @@ func (r *Reconciler) ensureReadWriteSTS(ctx context.Context, piHoleCluster *supp
 		},
 	}
 
-	addExporterIfEnabled(piHoleCluster, &desired.Spec.Template.Spec)
+	defaultProbes(piHoleCluster)
+
+	if piHoleCluster.Spec.LivenessProbe != nil {
+		desired.Spec.Template.Spec.Containers[0].LivenessProbe = piHoleCluster.Spec.LivenessProbe
+	}
+	if piHoleCluster.Spec.ReadinessProbe != nil {
+		desired.Spec.Template.Spec.Containers[0].ReadinessProbe = piHoleCluster.Spec.ReadinessProbe
+	}
 
 	// API password env
-	secret, err := r.ensureAPISecret(ctx, piHoleCluster)
-	if err != nil {
+	secret, err := r.getAPISecret(ctx, piHoleCluster)
+	if err != nil || secret == nil {
 		return err
 	}
-	if secret != nil {
-		var key string
-		if piHoleCluster.Spec.Config != nil && piHoleCluster.Spec.Config.APIPassword.SecretRef != nil {
-			key = piHoleCluster.Spec.Config.APIPassword.SecretRef.Key
-		} else {
-			key = "password"
-		}
-		env := corev1.EnvVar{
-			Name: "FTLCONF_webserver_api_password",
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name},
-					Key:                  key,
-				},
-			},
-		}
-		desired.Spec.Template.Spec.Containers[0].Env = append(desired.Spec.Template.Spec.Containers[0].Env, env)
+
+	var key string
+
+	if piHoleCluster.Spec.Config != nil && piHoleCluster.Spec.Config.APIPassword.SecretRef != nil {
+		key = piHoleCluster.Spec.Config.APIPassword.SecretRef.Key
+	} else {
+		key = "password"
 	}
+
+	varSource := &corev1.EnvVarSource{
+		SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name},
+			Key:                  key,
+		},
+	}
+
+	env := corev1.EnvVar{
+		Name:      "FTLCONF_webserver_api_password",
+		ValueFrom: varSource,
+	}
+
+	desired.Spec.Template.Spec.Containers[0].Env = append(desired.Spec.Template.Spec.Containers[0].Env, env)
+	addExporterIfEnabled(piHoleCluster, &desired.Spec.Template.Spec, varSource)
 
 	pvc, err := r.ensurePiHolePVC(ctx, piHoleCluster)
 	if err != nil {
@@ -228,30 +267,43 @@ func (r *Reconciler) ensureReadOnlySTS(ctx context.Context, piHoleCluster *suppo
 		},
 	}
 
-	addExporterIfEnabled(piHoleCluster, &desired.Spec.Template.Spec)
+	defaultProbes(piHoleCluster)
 
-	secret, err := r.ensureAPISecret(ctx, piHoleCluster)
-	if err != nil {
+	if piHoleCluster.Spec.LivenessProbe != nil {
+		desired.Spec.Template.Spec.Containers[0].LivenessProbe = piHoleCluster.Spec.LivenessProbe
+	}
+	if piHoleCluster.Spec.ReadinessProbe != nil {
+		desired.Spec.Template.Spec.Containers[0].ReadinessProbe = piHoleCluster.Spec.ReadinessProbe
+	}
+
+	// API password env
+	secret, err := r.getAPISecret(ctx, piHoleCluster)
+	if err != nil || secret == nil {
 		return err
 	}
-	if secret != nil {
-		var key string
-		if piHoleCluster.Spec.Config != nil && piHoleCluster.Spec.Config.APIPassword.SecretRef != nil {
-			key = piHoleCluster.Spec.Config.APIPassword.SecretRef.Key
-		} else {
-			key = "password"
-		}
-		env := corev1.EnvVar{
-			Name: "FTLCONF_webserver_api_password",
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name},
-					Key:                  key,
-				},
-			},
-		}
-		desired.Spec.Template.Spec.Containers[0].Env = append(desired.Spec.Template.Spec.Containers[0].Env, env)
+
+	var key string
+
+	if piHoleCluster.Spec.Config != nil && piHoleCluster.Spec.Config.APIPassword.SecretRef != nil {
+		key = piHoleCluster.Spec.Config.APIPassword.SecretRef.Key
+	} else {
+		key = "password"
 	}
+
+	varSource := &corev1.EnvVarSource{
+		SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name},
+			Key:                  key,
+		},
+	}
+
+	env := corev1.EnvVar{
+		Name:      "FTLCONF_webserver_api_password",
+		ValueFrom: varSource,
+	}
+
+	desired.Spec.Template.Spec.Containers[0].Env = append(desired.Spec.Template.Spec.Containers[0].Env, env)
+	addExporterIfEnabled(piHoleCluster, &desired.Spec.Template.Spec, varSource)
 
 	envCM, err := r.ensurePiHoleEnvCM(ctx, piHoleCluster)
 	if err != nil {

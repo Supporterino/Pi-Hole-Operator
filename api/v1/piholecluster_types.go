@@ -66,6 +66,24 @@ type PiHoleClusterSpec struct {
 	//
 	// +optional
 	Security *SecuritySpec `json:"security,omitempty"`
+
+	// LivenessProbe defines the liveness probe for the exporter container.
+	//
+	// The default is a simple TCP check on port 80 (the exporter’s HTTP
+	// endpoint) that runs every 30 s and has a timeout of 5 s.  The user can
+	// override any field; if the struct is omitted entirely, the defaults
+	// above are used.
+	//
+	// +optional
+	LivenessProbe *corev1.Probe `json:"livenessProbe,omitempty"`
+	// ReadinessProbe defines the readiness probe for the exporter container.
+	//
+	// The default is a simple HTTP GET to `/metrics` on port 80 that runs
+	// every 10 s and has a timeout of 2 s.  As with the liveness probe,
+	// all fields are optional and may be overridden by the user.
+	//
+	// +optional
+	ReadinessProbe *corev1.Probe `json:"readinessProbe,omitempty"`
 }
 
 // IngressSpec defines the ingress configuration for a PiHoleCluster.
@@ -132,6 +150,24 @@ type ExporterSpec struct {
 	//
 	// +optional
 	ContainerSecurityContext *corev1.SecurityContext `json:"containerSecurityContext,omitempty"`
+
+	// LivenessProbe defines the liveness probe for the exporter container.
+	//
+	// The default is a simple TCP check on port 80 (the exporter’s HTTP
+	// endpoint) that runs every 30 s and has a timeout of 5 s.  The user can
+	// override any field; if the struct is omitted entirely, the defaults
+	// above are used.
+	//
+	// +optional
+	LivenessProbe *corev1.Probe `json:"livenessProbe,omitempty"`
+	// ReadinessProbe defines the readiness probe for the exporter container.
+	//
+	// The default is a simple HTTP GET to `/metrics` on port 80 that runs
+	// every 10 s and has a timeout of 2 s.  As with the liveness probe,
+	// all fields are optional and may be overridden by the user.
+	//
+	// +optional
+	ReadinessProbe *corev1.Probe `json:"readinessProbe,omitempty"`
 }
 
 // PodMonitorSpec defines the pod‑monitor configuration.

@@ -8,7 +8,9 @@ metadata:
 spec:
   replicas: 2
   sync:
-    cron: 0 1 * * *
+    cron: 37 * * * *
+    adLists: true
+    config: true
   monitoring:
     exporter:
       enabled: true

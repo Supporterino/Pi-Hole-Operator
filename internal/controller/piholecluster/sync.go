@@ -30,13 +30,11 @@ func (r *Reconciler) performConfigSync(ctx context.Context, cluster *supporterin
 
 	// 1️⃣ Build a map of existing RO pods
 	podList := &corev1.PodList{}
-	if err := r.List(ctx, podList,
-		client.InNamespace(cluster.Namespace),
-		client.MatchingLabels(map[string]string{
-			"app.kubernetes.io/instance":  cluster.Name,
-			"app.kubernetes.io/name":      "pihole",
-			"supporterino.de/pihole-role": "readonly",
-		})); err != nil {
+	if err := r.List(ctx, podList, client.InNamespace(cluster.Namespace), client.MatchingLabels(map[string]string{
+		"app.kubernetes.io/instance":  cluster.Name,
+		"app.kubernetes.io/name":      "pihole",
+		"supporterino.de/pihole-role": "readonly",
+	})); err != nil {
 		return fmt.Errorf("listing RO pods: %w", err)
 	}
 	podMap := make(map[string]*corev1.Pod)
@@ -47,9 +45,9 @@ func (r *Reconciler) performConfigSync(ctx context.Context, cluster *supporterin
 
 	// 2️⃣ Detect pods that need a sync
 	var podsNeedingSync []string
-	for podName, pod := range podMap {
+	for _, pod := range podMap {
 		if !r.isPodSynced(cluster, pod.Name, pod.GetUID()) {
-			podsNeedingSync = append(podsNeedingSync, podName)
+			podsNeedingSync = append(podsNeedingSync, pod.Name)
 		}
 	}
 	log.V(1).Info("Pods needing sync", "count", len(podsNeedingSync))
@@ -149,7 +147,7 @@ func (r *Reconciler) syncAdLists(ctx context.Context, cluster *supporterinodev1.
 	}
 
 	// Create missing lists on RW
-	rwLists, err := rwClient.GetAdLists()
+	rwLists, err := rwClient.GetAdLists(ctx)
 	if err != nil {
 		return fmt.Errorf("fetching ad‑lists from RW: %w", err)
 	}
@@ -167,7 +165,7 @@ func (r *Reconciler) syncAdLists(ctx context.Context, cluster *supporterinodev1.
 	}
 
 	// After creation fetch the *updated* RW list
-	updatedRW, err := rwClient.GetAdLists()
+	updatedRW, err := rwClient.GetAdLists(ctx)
 	if err != nil {
 		return fmt.Errorf("refetching ad‑lists from RW: %w", err)
 	}
@@ -186,10 +184,15 @@ func (r *Reconciler) syncAdLists(ctx context.Context, cluster *supporterinodev1.
 		}
 	}
 
+	err = rwClient.RunGravity(ctx)
+	if err != nil {
+		return fmt.Errorf("updating gravity on RW: %w", err)
+	}
+
 	// ------------------------------------------------------------
 	// 3️⃣ Sync the RO clients to match the *final* RW list
 	// ------------------------------------------------------------
-	rwList, err := rwClient.GetAdLists()
+	rwList, err := rwClient.GetAdLists(ctx)
 	if err != nil {
 		return fmt.Errorf("fetching ad‑lists from RW: %w", err)
 	}
@@ -205,7 +208,7 @@ func (r *Reconciler) syncAdLists(ctx context.Context, cluster *supporterinodev1.
 
 	for _, ro := range roClients {
 		// 3a) Ensure all CRD URLs exist on this RO
-		roLists, err := ro.GetAdLists()
+		roLists, err := ro.GetAdLists(ctx)
 		if err != nil {
 			return fmt.Errorf("fetching ad‑lists from RO: %w", err)
 		}
@@ -223,7 +226,7 @@ func (r *Reconciler) syncAdLists(ctx context.Context, cluster *supporterinodev1.
 		}
 
 		// 3b) Delete any operator‑created lists that are no longer in the RW replica
-		roLists, err = ro.GetAdLists()
+		roLists, err = ro.GetAdLists(ctx)
 		if err != nil {
 			return fmt.Errorf("refetching ad‑lists from RO: %w", err)
 		}
@@ -234,6 +237,11 @@ func (r *Reconciler) syncAdLists(ctx context.Context, cluster *supporterinodev1.
 					return fmt.Errorf("deleting ad‑list %s from RO: %w", l.Address, err)
 				}
 			}
+		}
+
+		err = ro.RunGravity(ctx)
+		if err != nil {
+			return fmt.Errorf("updating gravity on ro(%s): %w", ro.BaseURL, err)
 		}
 	}
 
@@ -250,9 +258,7 @@ func (r *Reconciler) syncAPIClients(ctx context.Context, piHoleCluster *supporte
 
 	// 1️⃣ List all Pi‑Hole pods
 	podList := &corev1.PodList{}
-	if err := r.List(ctx, podList,
-		client.InNamespace(piHoleCluster.Namespace),
-		client.MatchingLabels(map[string]string{"app.kubernetes.io/name": "pihole"})); err != nil {
+	if err := r.List(ctx, podList, client.InNamespace(piHoleCluster.Namespace), client.MatchingLabels(map[string]string{"app.kubernetes.io/name": "pihole"})); err != nil {
 		return fmt.Errorf("listing pihole pods: %w", err)
 	}
 	log.V(1).Info(fmt.Sprintf("found %d pihole pod(s)", len(podList.Items)))
@@ -279,8 +285,7 @@ func (r *Reconciler) syncAPIClients(ctx context.Context, piHoleCluster *supporte
 		}
 
 		if exists {
-			log.V(1).Info("pod restarted – recreating client",
-				"pod", p.Name, "oldIP", entry.ip, "newIP", ip)
+			log.V(1).Info("pod restarted – recreating client", "pod", p.Name, "oldIP", entry.ip, "newIP", ip)
 			entry.client.Close()
 		}
 
@@ -290,12 +295,9 @@ func (r *Reconciler) syncAPIClients(ctx context.Context, piHoleCluster *supporte
 		}
 		password := string(secret.Data["password"])
 
-		apiClient := pihole_api.NewAPIClient(
-			baseURL, password,
-			10*time.Second, // request timeout
-			true,           // skipTLSVerification – true if you use self‑signed certs
-			ctx,
-		)
+		apiClient := pihole_api.NewAPIClient(baseURL, password, 10*time.Second, // request timeout
+			true, // skipTLSVerification – true if you use self‑signed certs
+			ctx)
 
 		r.ApiClients[p.Name] = &ApiClientEntry{client: apiClient, ip: ip}
 		log.V(1).Info("created/updated API client", "pod", p.Name, "ip", ip)
