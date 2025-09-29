@@ -1557,15 +1557,9 @@ spec:
                     description: Config indicates whether the operator should sync
                       PiHole configuration files.
                     type: boolean
-                  cron:
-                    description: Cron is a standard cron expression that determines
-                      when the sync job runs.
-                    minLength: 1
-                    type: string
                 required:
                 - adLists
                 - config
-                - cron
                 type: object
             required:
             - replicas

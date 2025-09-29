@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/robfig/cron/v3"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -17,8 +16,6 @@ import (
 	"supporterino.de/pihole/internal/pihole_api"
 	"supporterino.de/pihole/internal/utils"
 )
-
-var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 
 // ---------------------------------------------------------------------------
 // Configuration sync
@@ -52,13 +49,13 @@ func (r *Reconciler) performConfigSync(ctx context.Context, cluster *supporterin
 	}
 	log.V(1).Info("Pods needing sync", "count", len(podsNeedingSync))
 
-	runSync := len(podsNeedingSync) > 0 || r.shouldSyncNow(cluster.Spec.Sync.Cron, cluster.Status.LastConfigSyncTime)
+	runSync := len(podsNeedingSync) > 0
 
 	if !runSync {
-		log.Info("Config sync not required", "cron", cluster.Spec.Sync.Cron, "newPods", len(podsNeedingSync))
+		log.Info("Config sync not required", "newPods", len(podsNeedingSync))
 		return nil
 	}
-	log.Info("Running config sync", "cron", cluster.Spec.Sync.Cron, "newPods", len(podsNeedingSync))
+	log.Info("Running config sync", "newPods", len(podsNeedingSync))
 
 	// 3️⃣ Read‑write client
 	rwClient, err := r.ReadWriteAPIClient()
@@ -350,27 +347,6 @@ func (r *Reconciler) ReadOnlyAPIClients() ([]*pihole_api.APIClient, error) {
 		return nil, fmt.Errorf("no read‑only API clients found")
 	}
 	return ro, nil
-}
-
-// ---------------------------------------------------------------------------
-// Scheduling helpers
-// ---------------------------------------------------------------------------
-
-func (r *Reconciler) shouldSyncNow(cronExpr string, lastSync metav1.Time) bool {
-	if cronExpr == "" {
-		return false
-	}
-	sched, err := cronParser.Parse(cronExpr)
-	if err != nil {
-		return false
-	}
-
-	now := time.Now()
-	if lastSync.IsZero() { // never synced before → sync immediately
-		return true
-	}
-	next := sched.Next(lastSync.Time)
-	return !now.Before(next) // true if now >= next
 }
 
 // ---------------------------------------------------------------------------

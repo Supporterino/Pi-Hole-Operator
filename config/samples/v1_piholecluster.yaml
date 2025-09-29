@@ -8,7 +8,6 @@ metadata:
 spec:
   replicas: 2
   sync:
-    cron: 37 * * * *
     adLists: true
     config: true
   monitoring:

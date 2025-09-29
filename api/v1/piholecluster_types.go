@@ -102,11 +102,6 @@ type IngressSpec struct {
 
 // SyncSpec defines optional sync behaviour for a PiHoleCluster.
 type SyncSpec struct {
-	// Cron is a standard cron expression that determines when the sync job runs.
-	//
-	// +kubebuilder:validation:MinLength=1
-	Cron string `json:"cron"`
-
 	// Config indicates whether the operator should sync PiHole configuration files.
 	//
 	// +kubebuilder:validation:Required
