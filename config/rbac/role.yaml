@@ -5,65 +5,65 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-    - ""
+  - ""
   resources:
-    - configmaps
-    - persistentvolumeclaims
-    - secrets
-    - services
+  - configmaps
+  - persistentvolumeclaims
+  - secrets
+  - services
   verbs:
-    - create
-    - delete
-    - get
-    - list
-    - patch
-    - update
-    - watch
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
-    - ""
+  - ""
   resources:
-    - pods
+  - pods
   verbs:
-    - delete
-    - get
-    - list
-    - watch
+  - delete
+  - get
+  - list
+  - watch
 - apiGroups:
-    - apps
+  - apps
   resources:
-    - statefulsets
+  - statefulsets
   verbs:
-    - create
-    - delete
-    - get
-    - list
-    - patch
-    - update
-    - watch
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
-    - monitoring.coreos.com
+  - monitoring.coreos.com
   resources:
-    - podmonitors
+  - podmonitors
   verbs:
-    - create
-    - delete
-    - get
-    - list
-    - patch
-    - update
-    - watch
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
-    - networking.k8s.io
+  - networking.k8s.io
   resources:
-    - ingresses
+  - ingresses
   verbs:
-    - create
-    - delete
-    - get
-    - list
-    - patch
-    - update
-    - watch
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - supporterino.de
   resources:
