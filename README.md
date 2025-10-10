@@ -1,93 +1,283 @@
-# Pi-hole Operator
+# Pi‑Hole Operator
 
+**A Kubernetes operator that manages one or many Pi‑Hole clusters – fully declarative, secure and observability‑ready.**
 
+> *Author:* supporterino  
+> *License:* Apache 2.0
 
-## Getting started
+---
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Table of contents
+1. [What is Pi‑Hole Operator?](#what-is-pi-hole-operator)
+2. [Features](#features)
+3. [Architecture](#architecture)
+4. [Prerequisites](#prerequisites)
+5. [Installation](#installation)
+    * Helm chart
+    * Installing the CRDs
+6. [Using the Operator](#using-the-operator)
+    * Creating a PiHoleCluster
+    * Syncing lists & configuration
+    * Ingress, monitoring and metrics
+7. [Configuration](#configuration)
+    * `values.yaml` knobs
+    * Secret handling for the API password
+8. [Local Development](#local-development)
+9. [Testing](#testing)
+10. [Contributing](#contributing)
+11. [License](#license)
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+---
 
-## Add your files
+## What is Pi‑Hole Operator?
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+Pi‑Hole is a network‑wide ad blocker that runs as a DNS server.  
+The **Pi‑Hole Operator** is a Kubernetes operator written with Kubebuilder that:
+
+* Deploys and manages **Pi‑Hole clusters** (one read‑write pod + one or more read‑only replicas)
+* Keeps the Pi‑Hole configuration and ad‑lists in sync with a Git repository or any other source
+* Exposes the cluster via an Ingress (optional)
+* Provides Prometheus metrics, ServiceMonitors and pod‑monitors
+* Supports cert‑manager for webhook TLS
+* Is fully declarative – you only describe the desired state in a `PiHoleCluster` CR
+
+---
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **Declarative cluster** | One `PiHoleCluster` CR creates a read‑write pod + N replicas |
+| **Sync** | Operator can sync configuration files and ad‑lists from a Git repo (or any URL) |
+| **Ingress** | Optional Ingress with domain support |
+| **Monitoring** | Exporter + ServiceMonitor / PodMonitor for Prometheus |
+| **Webhooks & cert‑manager** | Validating and mutating admission webhooks with TLS |
+| **NetworkPolicies** | Optional network‑policy for isolation |
+| **Helm chart** | Install via Helm (`dist/chart`) with all CRDs, RBAC and optional components |
+| **Local dev** | `local_deploy.sh` builds & pushes the image, then deploys with Helm |
+| **e2E tests** | `test/e2e` contains integration tests (see the test folder) |
+| **Observability** | Metrics, health probes and liveness/readiness checks |
+
+---
+
+## Architecture
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.supporterino.de/management/pi-hole-operator.git
-git branch -M main
-git push -uf origin main
++-----------------+          +--------------------+
+| PiHoleCluster   |  CRD      |  Operator (manager)|
++-----------------+ <-------- +--------------------+
+          ^                            |
+          |                            v
+   Spec & Status  <--->  Reconciler logic
+          |                            |
+          +----------------------------+
+               +-----+------+-------+
+               |  Pi‑Hole  |  Exporter|
+               |   Pods    | (metrics)|
+               +-----+------+-------+
 ```
 
-## Integrate with your tools
+* The operator runs in the `pi-hole-operator-system` namespace.
+* Each `PiHoleCluster` creates:
+    * **Read‑write** pod – the primary Pi‑Hole instance
+    * **Read‑only replicas** (configurable via `spec.replicas`)
+* The operator watches the CR and reconciles:
+    * Deployment, Service, Ingress, ConfigMap
+    * Syncing of configuration and ad‑lists via the Pi‑Hole API
+* Optional components (metrics, webhooks, cert‑manager, network policy) are enabled via Helm values.
 
-- [ ] [Set up project integrations](https://gitlab.supporterino.de/management/pi-hole-operator/-/settings/integrations)
+---
 
-## Collaborate with your team
+## Prerequisites
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+| Component | Minimum version |
+|-----------|-----------------|
+| Go | 1.22+ (used for building) |
+| kubectl | 1.28+ |
+| Helm v3 | ≥3.10 |
+| Docker / Podman | ≥20.10 |
+| Kubernetes cluster | 1.28+ (tested on GKE, EKS, Minikube) |
+| cert‑manager | 1.12+ (if `certmanager.enable` is true) |
 
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+---
 
 ## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+### 1. Install the Helm chart
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+```bash
+# Add the repo (if you host it elsewhere)
+helm repo add pi-hole-operator https://example.com/charts
+helm repo update
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+# Install (default values)
+helm install pi-hole-operator pi-hole-operator/pi-hole-operator \
+  --namespace pi-hole-operator-system \
+  --create-namespace
+```
+
+The chart installs:
+
+* CRDs (`PiHoleCluster`)
+* RBAC
+* Controller manager deployment
+* Optional components per `values.yaml`
+
+### 2. Install CRDs manually (optional)
+
+If you prefer to install the CRDs separately:
+
+```bash
+kubectl apply -f config/crd/bases/
+```
+
+---
+
+## Using the Operator
+
+### Create a PiHoleCluster
+
+```yaml
+apiVersion: v1alpha1.example.com/v1
+kind: PiHoleCluster
+metadata:
+  name: example
+spec:
+  replicas: 3          # read‑only replicas
+  ingress:
+    enabled: true
+    domain: "pi.example.com"
+  sync:
+    config: true
+    adLists: true
+  monitoring:
+    exporter:
+      enabled: true
+  config:
+    apiPassword:
+      secretRef:
+        name: pihole-secret
+        key: password
+    env:
+      TZ: "Europe/Berlin"
+  persistence:
+    size: 10Gi
+```
+
+Apply:
+
+```bash
+kubectl apply -f piholecluster.yaml
+```
+
+The operator will create the deployment, service, ingress and sync configuration automatically.
+
+### Syncing lists & configuration
+
+* The operator polls the Pi‑Hole API every 5 minutes (configurable via env var `SYNC_INTERVAL`).
+* Add URLs under `spec.config.adLists`.  
+  Example: `https://some.com/ads.txt`.
+
+### Ingress, Monitoring & Metrics
+
+* If `spec.ingress.enabled` is true, an Ingress will be created.
+* Exporter metrics are exposed on `/metrics`.  
+  Enable via `spec.monitoring.exporter.enabled`.
+* Prometheus ServiceMonitor is created if `metrics.enable` in Helm values is true.
+
+---
+
+## Configuration
+
+### Helm `values.yaml`
+
+| Section | Key | Default |
+|---------|-----|---------|
+| `controllerManager` | `replicas` | 1 |
+| `rbac.enable` | `true` | - |
+| `crd.enable`, `crd.keep` | `true` | - |
+| `metrics.enable` | `true` | - |
+| `webhook.enable` | `true` | - |
+| `prometheus.enable` | `false` | - |
+| `certmanager.enable` | `true` | - |
+| `networkPolicy.enable` | `false` | - |
+
+### API password
+
+The Pi‑Hole web interface requires a password.  
+You can store it in a Kubernetes Secret:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pihole-secret
+type: Opaque
+data:
+  password: <base64-encoded-password>
+```
+
+Then reference it in the CR:
+
+```yaml
+config:
+  apiPassword:
+    secretRef:
+      name: pihole-secret
+      key: password
+```
+
+---
+
+## Local Development
+
+The repository ships with a convenient script that builds, pushes and deploys the operator.
+
+```bash
+# Build & push image
+./local_deploy.sh patch   # or major/minor/patch
+
+# Deploy to your cluster (helm will use the image from the script)
+```
+
+The script:
+
+1. Bumps the version in `.version`.
+2. Builds the Docker image (`make docker-build`).
+3. Pushes it to `registry.supporterino.de/supporterino/pihole-operator`.
+4. Deploys the chart with Helm.
+
+---
+
+## Testing
+
+* **Unit tests** – run `go test ./...`.
+* **e2E tests** – located in `test/e2e`.  
+  They create a temporary cluster (kind or minikube), deploy the operator and validate CR creation.
+
+```bash
+make test-e2e
+```
+
+---
 
 ## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+1. Fork the repo.
+2. Create a feature branch (`git checkout -b feat/…`).
+3. Run `make test` to ensure all tests pass.
+4. Submit a PR.
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+**Style guidelines**
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+* Follow the existing Go formatting (`go fmt`).
+* Keep changes minimal – do not refactor unrelated code.
+* Add unit tests for any new logic.
+
+---
 
 ## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+Apache 2.0 – see [LICENSE](LICENSE).
+
+---
