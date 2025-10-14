@@ -1,0 +1,78 @@
+site_name: Pi-Hole Operator
+site_url: https://supporterino.github.io/Pi-Hole-Operator
+copyright: Copyright &copy; 2025 - 2025 Supporterino
+theme:
+  name: material
+  language: en
+  icon:
+    logo: material/gitlab
+  font:
+    text: Roboto
+    code: Roboto Mono
+  features:
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.select
+    - content.code.annotate
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.path
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - scheme: default
+      media: "(prefers-color-scheme: light)"
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      media: "(prefers-color-scheme: dark)"
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+plugins:
+  - search
+  - social
+extra:
+  generator: false
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Supporterino/Pi-Hole-Operator
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - attr_list
+  - md_in_html
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - footnotes
+  - pymdownx.critic
+  - pymdownx.caret
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.blocks.caption
+  - def_list
+  - pymdownx.tasklist:
+      custom_checkbox: true
