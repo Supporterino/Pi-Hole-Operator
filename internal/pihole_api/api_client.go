@@ -139,7 +139,7 @@ func (c *APIClient) Authenticate() error {
 	// Helper that performs the actual HTTP request.
 	// --------------------------------------------------------------------
 	doAuth := func() error {
-		url := fmt.Sprintf("%s/api/auth", c.BaseURL)
+		address := fmt.Sprintf("%s/api/auth", c.BaseURL)
 		payload := map[string]string{"password": c.password}
 		jsonPayload, err := json.Marshal(payload)
 		if err != nil {
@@ -148,9 +148,9 @@ func (c *APIClient) Authenticate() error {
 
 		// Log the authentication attempt – this is helpful when multiple
 		// clients are created, and you want to see which instance is trying.
-		c.logger.V(1).Info("Authenticating", "url", url)
+		c.logger.V(1).Info("Authenticating", "url", address)
 
-		resp, err := c.Client.Post(url, "application/json", bytes.NewBuffer(jsonPayload))
+		resp, err := c.Client.Post(address, "application/json", bytes.NewBuffer(jsonPayload))
 		if err != nil {
 			// The error is non‑retryable – we log it and return.
 			c.logger.V(1).Info("POST authentication request failed")
@@ -227,10 +227,10 @@ func (c *APIClient) DownloadTeleporter(ctx context.Context) ([]byte, error) {
 		return nil, fmt.Errorf("auth: %w", err)
 	}
 
-	url := c.BaseURL + "/api/teleporter"
-	c.logger.V(1).Info("Downloading teleporter", "url", url)
+	address := c.BaseURL + "/api/teleporter"
+	c.logger.V(1).Info("Downloading teleporter", "url", address)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
 		return nil, fmt.Errorf("new request: %w", err)
 	}
@@ -273,8 +273,8 @@ func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
 		return fmt.Errorf("auth: %w", err)
 	}
 
-	url := c.BaseURL + "/api/teleporter"
-	c.logger.V(1).Info("Uploading teleporter", "url", url, "bytesToSend", len(data))
+	address := c.BaseURL + "/api/teleporter"
+	c.logger.V(1).Info("Uploading teleporter", "url", address, "bytesToSend", len(data))
 
 	// --------------------------------------------------------------------
 	// Build the multipart payload once.
@@ -307,7 +307,7 @@ func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
 	// Operation that will be retried on transient failures.
 	// --------------------------------------------------------------------
 	doUpload := func() error {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload.Bytes()))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, address, bytes.NewReader(payload.Bytes()))
 		if err != nil {
 			return fmt.Errorf("new request: %w", err) // not retriable – bail out
 		}
@@ -344,13 +344,13 @@ func (c *APIClient) UploadTeleporter(ctx context.Context, data []byte) error {
 
 // GetAdLists retrieves the current list of ad‑lists from the PiHole instance.
 func (c *APIClient) GetAdLists(ctx context.Context) ([]AdList, error) {
-	url := fmt.Sprintf("%s/api/lists", c.BaseURL)
+	address := fmt.Sprintf("%s/api/lists", c.BaseURL)
 
 	if err := c.ensureAuth(); err != nil {
 		return nil, fmt.Errorf("auth: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
 		return nil, fmt.Errorf("new request: %w", err)
 	}
@@ -368,12 +368,12 @@ func (c *APIClient) GetAdLists(ctx context.Context) ([]AdList, error) {
 	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s returned status %d", url, resp.StatusCode)
+		return nil, fmt.Errorf("GET %s returned status %d", address, resp.StatusCode)
 	}
 
 	var r listsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		return nil, fmt.Errorf("decode %s: %w", url, err)
+		return nil, fmt.Errorf("decode %s: %w", address, err)
 	}
 
 	return r.Lists, nil
@@ -381,7 +381,7 @@ func (c *APIClient) GetAdLists(ctx context.Context) ([]AdList, error) {
 
 // PostAdList creates a new ad‑list with the given address.
 func (c *APIClient) PostAdList(ctx context.Context, addr string) error {
-	url := fmt.Sprintf("%s/api/lists", c.BaseURL)
+	address := fmt.Sprintf("%s/api/lists", c.BaseURL)
 
 	if err := c.ensureAuth(); err != nil {
 		return fmt.Errorf("auth: %w", err)
@@ -396,7 +396,7 @@ func (c *APIClient) PostAdList(ctx context.Context, addr string) error {
 	}
 	body, _ := json.Marshal(payload)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, address, bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("create POST request: %w", err)
 	}
@@ -405,12 +405,14 @@ func (c *APIClient) PostAdList(ctx context.Context, addr string) error {
 
 	resp, err := c.Client.Do(req)
 	if err != nil {
-		return fmt.Errorf("POST %s: %w", url, err)
+		return fmt.Errorf("POST %s: %w", address, err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("POST %s returned status %d", url, resp.StatusCode)
+		return fmt.Errorf("POST %s returned status %d", address, resp.StatusCode)
 	}
 
 	return nil
@@ -422,25 +424,27 @@ func (c *APIClient) PostAdList(ctx context.Context, addr string) error {
 func (c *APIClient) DeleteAdList(ctx context.Context, addr string) error {
 	// Encode the address as required by PiHole
 	encoded := url.QueryEscape(addr)
-	urlStr := fmt.Sprintf("%s/api/lists/%s?type=block", c.BaseURL, encoded)
+	address := fmt.Sprintf("%s/api/lists/%s?type=block", c.BaseURL, encoded)
 
 	if err := c.ensureAuth(); err != nil {
 		return fmt.Errorf("auth: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, urlStr, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, address, nil)
 	if err != nil {
 		return fmt.Errorf("create DELETE request: %w", err)
 	}
 
 	resp, err := c.Client.Do(req)
 	if err != nil {
-		return fmt.Errorf("DELETE %s: %w", urlStr, err)
+		return fmt.Errorf("DELETE %s: %w", address, err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("DELETE %s returned status %d", urlStr, resp.StatusCode)
+		return fmt.Errorf("DELETE %s returned status %d", address, resp.StatusCode)
 	}
 
 	return nil
@@ -448,13 +452,13 @@ func (c *APIClient) DeleteAdList(ctx context.Context, addr string) error {
 
 // RunGravity triggers an gravity run to update ad-lists
 func (c *APIClient) RunGravity(ctx context.Context) error {
-	url := fmt.Sprintf("%s/api/action/gravity", c.BaseURL)
+	address := fmt.Sprintf("%s/api/action/gravity", c.BaseURL)
 
 	if err := c.ensureAuth(); err != nil {
 		return fmt.Errorf("auth: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, address, nil)
 	if err != nil {
 		return fmt.Errorf("create POST request: %w", err)
 	}
@@ -462,12 +466,14 @@ func (c *APIClient) RunGravity(ctx context.Context) error {
 
 	resp, err := c.Client.Do(req)
 	if err != nil {
-		return fmt.Errorf("POST %s: %w", url, err)
+		return fmt.Errorf("POST %s: %w", address, err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("POST %s returned status %d", url, resp.StatusCode)
+		return fmt.Errorf("POST %s returned status %d", address, resp.StatusCode)
 	}
 
 	return nil
