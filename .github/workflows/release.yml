@@ -87,7 +87,6 @@ jobs:
         with:
           files: |
             ./dist/install.yaml
-            LICENSE
           name: ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           body: |
