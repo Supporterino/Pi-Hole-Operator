@@ -1,4 +1,3 @@
-```markdown
 # Pi‑Hole Operator
 
 !!! warning "Early‑Stage Project"
@@ -120,5 +119,3 @@ The operator will provision the deployment, service, ingress, and metrics automa
 ---
 
 > **Note**: The documentation site is hosted at <https://supporterino.de/pi-hole-operator/>.  Browse the sections above for detailed guidance.
-
-```
