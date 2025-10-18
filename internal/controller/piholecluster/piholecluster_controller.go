@@ -25,8 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,7 +37,7 @@ import (
 
 type ApiClientEntry struct {
 	client *pihole_api.APIClient
-	ip     string // last known IP for this pod
+	ip     string
 }
 
 type Reconciler struct {
@@ -73,135 +71,137 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	log.Info("Reconciling PiHoleCluster", "namespace", req.Namespace, "name", req.Name)
 
 	// 0️⃣ Fetch the PiHoleCluster instance
-	piHoleCluster := &supporterinodev1.PiHoleCluster{}
-	if err := r.Get(ctx, req.NamespacedName, piHoleCluster); err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Info("PiHoleCluster not found, it may have been deleted")
-			return ctrl.Result{}, nil // deleted
-		}
-		return ctrl.Result{}, fmt.Errorf("failed to get PiHoleCluster: %w", err)
+	cluster, err := r.fetchCluster(ctx, req)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
-	log.V(1).Info("Fetched PiHoleCluster object")
 
 	// 1️⃣ Add finalizer if missing
-	if !utils.ContainsString(piHoleCluster.Finalizers, finalizer) {
-		log.V(1).Info("Adding finalizer to PiHoleCluster")
-		piHoleCluster.Finalizers = append(piHoleCluster.Finalizers, finalizer)
-		if err := r.Update(ctx, piHoleCluster); err != nil {
-			return ctrl.Result{}, fmt.Errorf("adding finalizer: %w", err)
-		}
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	if !utils.ContainsString(cluster.Finalizers, finalizer) {
+		return r.addFinalizer(ctx, cluster)
 	}
 
-	r.currentClusterName = piHoleCluster.Name
-
-	if piHoleCluster.GetDeletionTimestamp() != nil {
-		meta.SetStatusCondition(&piHoleCluster.Status.Conditions, metav1.Condition{
-			Type:    typePiHoleClusterNotReady,
-			Status:  metav1.ConditionUnknown,
-			Reason:  "Finalizing",
-			Message: fmt.Sprintf("PiHole cluster %s is being deleted", r.currentClusterName),
-		})
-
-		if err := r.Status().Update(ctx, piHoleCluster); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to update status: %w", err)
-		}
-
-		return r.handleDelete(ctx, piHoleCluster)
+	// 2️⃣ Handle deletion
+	if cluster.GetDeletionTimestamp() != nil {
+		return r.handleDelete(ctx, cluster)
 	}
 
-	// 2️⃣ Ensure the API‑password secret is available
-	log.V(1).Info("Ensuring API password secret")
-	if _, err := r.ensureAPISecret(ctx, piHoleCluster); err != nil {
-		return ctrl.Result{}, fmt.Errorf("ensureAPISecret: %w", err)
+	// 3️⃣ Ensure all resources (API secret, PVCs, STS, Ingress, etc.)
+	if err := r.ensureResources(ctx, cluster); err != nil {
+		return ctrl.Result{}, fmt.Errorf("ensure resources: %w", err)
 	}
 
-	// 3️⃣ Ensure the PVC for the read‑write PiHole pod
-	log.V(1).Info("Ensuring PVC for RW pod")
-	if _, err := r.ensurePiHolePVC(ctx, piHoleCluster); err != nil {
-		return ctrl.Result{}, fmt.Errorf("ensurePiHolePVC: %w", err)
+	// 4️⃣ Update status
+	ready, err := r.resourcesReady(ctx, cluster)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("resources ready check failed: %w", err)
+	}
+	if err := r.updateStatus(ctx, cluster, ready, ""); err != nil {
+		return ctrl.Result{}, fmt.Errorf("update status: %w", err)
 	}
 
-	// 4️⃣ Create / update the read‑write StatefulSet
-	log.V(1).Info("Ensuring RW StatefulSet")
-	if err := r.ensureReadWriteSTS(ctx, piHoleCluster); err != nil {
-		return ctrl.Result{}, fmt.Errorf("ensureReadWriteSTS: %w", err)
-	}
-
-	// 5️⃣ Create / update the read‑only StatefulSet (if replicas > 0)
-	if piHoleCluster.Spec.Replicas > 0 {
-		log.V(1).Info("Checking readiness of RW pods before creating RO")
-		ready, err := r.areRWPodsReady(ctx, piHoleCluster)
-		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("checking RW pod readiness: %w", err)
-		}
-		if !ready {
-			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-		}
-
-		log.V(1).Info("Ensuring RO StatefulSet")
-		if err := r.ensureReadOnlySTS(ctx, piHoleCluster); err != nil {
-			return ctrl.Result{}, fmt.Errorf("ensureReadOnlySTS: %w", err)
-		}
-	}
-
-	// 6️⃣ Sync API clients and perform configuration sync
-	if piHoleCluster.Spec.Sync != nil && piHoleCluster.Spec.Replicas > 0 {
-		log.V(1).Info("Checking readiness of RO pods before sync")
-		ready, err := r.areROPodsReady(ctx, piHoleCluster)
-		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("checking RO pod readiness: %w", err)
-		}
-		if !ready {
-			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-		}
-
-		log.V(1).Info("Syncing API clients")
-		if err := r.syncAPIClients(ctx, piHoleCluster); err != nil {
-			return ctrl.Result{}, fmt.Errorf("sync API clients: %w", err)
-		}
-		log.V(1).Info("Performing configuration sync")
-		if err := r.performConfigSync(ctx, piHoleCluster); err != nil {
-			return ctrl.Result{}, fmt.Errorf("perform config sync: %w", err)
-		}
-	}
-
-	// 7️⃣ Ingress
-	if piHoleCluster.Spec.Ingress != nil && piHoleCluster.Spec.Ingress.Enabled {
-		log.V(1).Info("Ensuring Ingress")
-		if err := r.ensureIngress(ctx, piHoleCluster); err != nil {
-			return ctrl.Result{}, fmt.Errorf("ensureIngress: %w", err)
-		}
-	}
-
-	// 8️⃣ PodMonitor
-	if piHoleCluster.Spec.Monitoring != nil && piHoleCluster.Spec.Monitoring.PodMonitor != nil &&
-		piHoleCluster.Spec.Monitoring.PodMonitor.Enabled {
-		log.V(1).Info("Ensuring PodMonitor")
-		if err := r.ensurePodMonitor(ctx, piHoleCluster); err != nil {
-			return ctrl.Result{}, fmt.Errorf("ensurePodMonitor: %w", err)
-		}
-	}
-
-	// 9️⃣ DNS Service
-	log.V(1).Info("Ensuring DNS service")
-	if err := r.ensureDNSService(ctx, piHoleCluster); err != nil {
-		return ctrl.Result{}, fmt.Errorf("ensureDNSService: %w", err)
-	}
-
-	// 10️⃣ Update status
-	if ready, err := r.resourcesReady(ctx, piHoleCluster); err == nil {
-		if err := r.updateStatus(ctx, piHoleCluster, ready, ""); err != nil {
-			return ctrl.Result{}, fmt.Errorf("update status: %w", err)
-		}
-	} else {
-		if err := r.updateStatus(ctx, piHoleCluster, false, fmt.Sprintf("resourcesReady check failed: %v", err)); err != nil {
-			return ctrl.Result{}, fmt.Errorf("update status: %w", err)
-		}
-	}
-
-	log.V(0).Info("Reconciliation complete for PiHoleCluster", "name", piHoleCluster.Name)
+	log.V(0).Info("Reconciliation complete for PiHoleCluster", "name", cluster.Name)
 	return ctrl.Result{}, nil
+}
+
+// fetchCluster retrieves the PiHoleCluster instance and logs errors.
+func (r *Reconciler) fetchCluster(ctx context.Context, req ctrl.Request) (*supporterinodev1.PiHoleCluster, error) {
+	cluster := &supporterinodev1.PiHoleCluster{}
+	if err := r.Get(ctx, req.NamespacedName, cluster); err != nil {
+		if apierrors.IsNotFound(err) {
+			logf.FromContext(ctx).Info("PiHoleCluster not found, it may have been deleted")
+			return nil, fmt.Errorf("PiHoleCluster (%w) not found, it may have been deleted", err)
+		}
+		return nil, fmt.Errorf("failed to get PiHoleCluster: %w", err)
+	}
+	logf.FromContext(ctx).V(1).Info("Fetched PiHoleCluster object")
+	r.currentClusterName = cluster.Name
+	return cluster, nil
+}
+
+// addFinalizer adds the finalizer to the PiHoleCluster and requeues.
+func (r *Reconciler) addFinalizer(ctx context.Context, cluster *supporterinodev1.PiHoleCluster) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+	log.V(1).Info("Adding finalizer to PiHoleCluster")
+	cluster.Finalizers = append(cluster.Finalizers, finalizer)
+	if err := r.Update(ctx, cluster); err != nil {
+		return ctrl.Result{}, fmt.Errorf("adding finalizer: %w", err)
+	}
+	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+}
+
+// ensureResources contains the original “resource‑creation” logic.
+func (r *Reconciler) ensureResources(ctx context.Context, cluster *supporterinodev1.PiHoleCluster) error {
+	// 0️⃣ API‑password secret
+	if _, err := r.ensureAPISecret(ctx, cluster); err != nil {
+		return fmt.Errorf("ensureAPISecret: %w", err)
+	}
+
+	// 1️⃣ PVC for RW pod
+	if _, err := r.ensurePiHolePVC(ctx, cluster); err != nil {
+		return fmt.Errorf("ensurePiHolePVC: %w", err)
+	}
+
+	// 2️⃣ RW StatefulSet
+	if err := r.ensureReadWriteSTS(ctx, cluster); err != nil {
+		return fmt.Errorf("ensureReadWriteSTS: %w", err)
+	}
+
+	// 3️⃣ RO StatefulSet (if replicas > 0)
+	if cluster.Spec.Replicas > 0 {
+		ready, err := r.areRWPodsReady(ctx, cluster)
+		if err != nil {
+			return fmt.Errorf("checking RW pod readiness: %w", err)
+		}
+		if !ready {
+			return fmt.Errorf("rw pods not ready")
+		}
+
+		if err := r.ensureReadOnlySTS(ctx, cluster); err != nil {
+			return fmt.Errorf("ensureReadOnlySTS: %w", err)
+		}
+	}
+
+	// 4️⃣ API sync
+	if cluster.Spec.Sync != nil && cluster.Spec.Replicas > 0 {
+		ready, err := r.areROPodsReady(ctx, cluster)
+		if err != nil {
+			return fmt.Errorf("checking RO pod readiness: %w", err)
+		}
+		if !ready {
+			return fmt.Errorf("ro pods not ready")
+		}
+
+		if err := r.syncAPIClients(ctx, cluster); err != nil {
+			return fmt.Errorf("sync API clients: %w", err)
+		}
+		if err := r.performConfigSync(ctx, cluster); err != nil {
+			return fmt.Errorf("perform config sync: %w", err)
+		}
+	}
+
+	// 5️⃣ Ingress
+	if cluster.Spec.Ingress != nil && cluster.Spec.Ingress.Enabled {
+		if err := r.ensureIngress(ctx, cluster); err != nil {
+			return fmt.Errorf("ensureIngress: %w", err)
+		}
+	}
+
+	// 6️⃣ PodMonitor
+	if cluster.Spec.Monitoring != nil &&
+		cluster.Spec.Monitoring.PodMonitor != nil &&
+		cluster.Spec.Monitoring.PodMonitor.Enabled {
+		if err := r.ensurePodMonitor(ctx, cluster); err != nil {
+			return fmt.Errorf("ensurePodMonitor: %w", err)
+		}
+	}
+
+	// 7️⃣ DNS Service
+	if err := r.ensureDNSService(ctx, cluster); err != nil {
+		return fmt.Errorf("ensureDNSService: %w", err)
+	}
+
+	return nil
 }
 
 // Finalizer handling -------------------------------------------------------
