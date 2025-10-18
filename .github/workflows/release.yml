@@ -1,0 +1,100 @@
+name: release.yml
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags:
+      - *
+
+jobs:
+  build-operator:
+    runs-on: ubuntu-latest
+    env:
+      IMG: ghcr.io/supporterino/pi-hole-operator:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Docker Build
+        run: |
+          make docker-build
+
+  release-operator:
+    permissions:
+      contents: write
+      packages: write
+    runs-on: ubuntu-latest
+    needs: build-operator
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    env:
+      IMG: ghcr.io/supporterino/pi-hole-operator:${{ github.ref_name }}
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Build
+        run: |
+          make build
+          make build-installer
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Github container repository
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+
+      - name: Push Helm chart as OCI to Github
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+          helm registry login -u ${{ github.actor }} --password-stdin ghcr.io
+          
+          helm package dist/chart
+          
+          helm push pi-hole-operator-${{ env.VERSION }}.tgz oci://ghcr.io/supporterino/pi-hole-operator/helm
+
+      - name: Build and Publish image into GHCR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ghcr.io/supporterino/pi-hole-operator:${{ github.ref_name }}
+          platforms: |
+            linux/amd64
+            linux/arm64
+        env:
+          DOCKER_BUILDKIT: 1
+          DOCKER_USERNAME: ${{ github.actor }}
+          DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: publish github release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ./dist/install.yaml
+            LICENSE
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          body: |
+            Release ${{ github.ref_name }}
+
+            Docker image: ghcr.io/supporterino/pi-hole-operator:${{ github.ref_name }}
+            Helm chart: oci://ghcr.io/supporterino/pi-hole-operator/helm
+          draft: true
