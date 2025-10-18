@@ -12,6 +12,7 @@
 #   2. Bumps that version according to the supplied type.
 #   3. Updates Chart.yaml (appVersion & chart version).
 #   4. Commits the change, tags the repo and pushes everything.
+#   5. Prints all commit messages since the previous tag (release notes).
 # ------------------------------------------------------------------
 set -euo pipefail
 
@@ -140,4 +141,18 @@ git tag "$NEW_APP_VERSION"
 git push
 git push --tags
 
+###########################
+# 10. Release notes
+###########################
+
+echo ""
+echo "📝 Release notes (commits since $PREV_VERSION):"
+# If PREV_VERSION is 0.0.0 (no tag), show all commits
+if [[ "$PREV_VERSION" == "0.0.0" ]]; then
+    git log --pretty=format:"- %h %s"
+else
+    git log --pretty=format:"- %h %s" "$PREV_VERSION"..HEAD
+fi
+
+echo ""
 echo "✅ Released $NEW_APP_VERSION (Chart: $NEW_CHART_VERSION) – all pushed!"
