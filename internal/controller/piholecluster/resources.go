@@ -13,8 +13,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -500,7 +498,7 @@ func (r *Reconciler) ensurePiHolePVC(ctx context.Context, piHoleCluster *support
 	}
 
 	// Customizer that only updates the storage request
-	pvcCustomizer := func(existing, desired ctrlclient.Object) (ctrlclient.Object, error) {
+	pvcCustomizer := func(existing, desired client.Object) (client.Object, error) {
 		existingPVC := existing.(*corev1.PersistentVolumeClaim)
 		desiredPVC := desired.(*corev1.PersistentVolumeClaim)
 
