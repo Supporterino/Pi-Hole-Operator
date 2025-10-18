@@ -131,7 +131,7 @@ rm -f "${CHART_FILE}.bak"
 ###########################
 
 git add "$CHART_FILE"
-git commit -m "Release $NEW_APP_VERSION (Chart: $NEW_CHART_VERSION)"
+git commit -m "chore: :bookmark: Release $NEW_APP_VERSION (Chart: $NEW_CHART_VERSION)"
 git tag "$NEW_APP_VERSION"
 
 ###########################
