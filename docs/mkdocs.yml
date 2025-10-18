@@ -16,6 +16,7 @@ theme:
     - content.code.copy
     - content.code.select
     - content.code.annotate
+    - navigation.tabs
     - navigation.instant
     - navigation.instant.progress
     - navigation.tracking
@@ -39,6 +40,15 @@ theme:
 plugins:
   - search
   - social
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Usage: usage.md
+  - Architecture: architecture.md
+  - Troubleshooting: troubleshooting.md
+  - FAQ: faq.md
+
 extra:
   generator: false
   social:
