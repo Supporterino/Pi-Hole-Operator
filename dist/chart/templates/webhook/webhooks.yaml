@@ -11,12 +11,12 @@ metadata:
   labels:
     {{- include "chart.labels" . | nindent 4 }}
 webhooks:
-  - name: mpiholecluster-v1alpha1.kb.io
+  - name: mpiholecluster-v1.kb.io
     clientConfig:
       service:
         name: pi-hole-operator-webhook-service
         namespace: {{ .Release.Namespace }}
-        path: /mutate-supporterino-de-v1alpha1-piholecluster
+        path: /mutate-supporterino-de-v1-piholecluster
     failurePolicy: Fail
     sideEffects: None
     admissionReviewVersions:
@@ -28,7 +28,7 @@ webhooks:
         apiGroups:
           - supporterino.de
         apiVersions:
-          - v1alpha1
+          - v1
         resources:
           - piholeclusters
 ---
@@ -44,12 +44,12 @@ metadata:
   labels:
     {{- include "chart.labels" . | nindent 4 }}
 webhooks:
-  - name: vpiholecluster-v1alpha1.kb.io
+  - name: vpiholecluster-v1.kb.io
     clientConfig:
       service:
         name: pi-hole-operator-webhook-service
         namespace: {{ .Release.Namespace }}
-        path: /validate-supporterino-de-v1alpha1-piholecluster
+        path: /validate-supporterino-de-v1-piholecluster
     failurePolicy: Fail
     sideEffects: None
     admissionReviewVersions:
@@ -61,7 +61,7 @@ webhooks:
         apiGroups:
           - supporterino.de
         apiVersions:
-          - v1alpha1
+          - v1
         resources:
           - piholeclusters
 {{- end }}

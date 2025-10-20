@@ -13,22 +13,22 @@ metadata:
     {{- include "chart.labels" . | nindent 4 }}
   name: piholecluster-editor-role
 rules:
-  - apiGroups:
-      - supporterino.de
-    resources:
-      - piholeclusters
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - supporterino.de
-    resources:
-      - piholeclusters/status
-    verbs:
-      - get
+- apiGroups:
+  - supporterino.de
+  resources:
+  - piholeclusters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - supporterino.de
+  resources:
+  - piholeclusters/status
+  verbs:
+  - get
 {{- end -}}

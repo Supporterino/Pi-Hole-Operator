@@ -13,16 +13,16 @@ metadata:
     {{- include "chart.labels" . | nindent 4 }}
   name: piholecluster-admin-role
 rules:
-  - apiGroups:
-      - supporterino.de
-    resources:
-      - piholeclusters
-    verbs:
-      - '*'
-  - apiGroups:
-      - supporterino.de
-    resources:
-      - piholeclusters/status
-    verbs:
-      - get
+- apiGroups:
+  - supporterino.de
+  resources:
+  - piholeclusters
+  verbs:
+  - '*'
+- apiGroups:
+  - supporterino.de
+  resources:
+  - piholeclusters/status
+  verbs:
+  - get
 {{- end -}}

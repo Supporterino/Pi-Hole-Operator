@@ -11,7 +11,7 @@ roleRef:
   kind: Role
   name: pi-hole-operator-leader-election-role
 subjects:
-  - kind: ServiceAccount
-    name: {{ .Values.controllerManager.serviceAccountName }}
-    namespace: {{ .Release.Namespace }}
+- kind: ServiceAccount
+  name: {{ .Values.controllerManager.serviceAccountName }}
+  namespace: {{ .Release.Namespace }}
 {{- end -}}

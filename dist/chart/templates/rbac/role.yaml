@@ -7,30 +7,90 @@ metadata:
     {{- include "chart.labels" . | nindent 4 }}
   name: pi-hole-operator-manager-role
 rules:
-  - apiGroups:
-      - supporterino.de
-    resources:
-      - piholeclusters
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - supporterino.de
-    resources:
-      - piholeclusters/finalizers
-    verbs:
-      - update
-  - apiGroups:
-      - supporterino.de
-    resources:
-      - piholeclusters/status
-    verbs:
-      - get
-      - patch
-      - update
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - persistentvolumeclaims
+  - secrets
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - podmonitors
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - supporterino.de
+  resources:
+  - piholeclusters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - supporterino.de
+  resources:
+  - piholeclusters/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - supporterino.de
+  resources:
+  - piholeclusters/status
+  verbs:
+  - get
+  - patch
+  - update
 {{- end -}}
