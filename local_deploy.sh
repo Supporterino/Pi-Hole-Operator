@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # File to keep track of the version
-VERSION_FILE=".version"
+VERSION_FILE=".local_version"
 
 # Read current version or default to 0.0.0
 if [[ -f "$VERSION_FILE" ]]; then
