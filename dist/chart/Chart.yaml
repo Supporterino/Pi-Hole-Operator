@@ -2,6 +2,6 @@ apiVersion: v2
 name: pi-hole-operator
 description: A Helm chart to distribute the project pi-hole-operator
 type: application
-version: 0.0.4
-appVersion: 0.0.4
+version: 0.0.5
+appVersion: 0.0.5
 icon: "https://example.com/icon.png"
