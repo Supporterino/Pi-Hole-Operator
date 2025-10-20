@@ -52,6 +52,7 @@ type Reconciler struct {
 
 // RBAC permissions -------------------------------------------------------
 
+//nolint:revive
 //+kubebuilder:rbac:groups=supporterino.de,resources=piholeclusters,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=supporterino.de,resources=piholeclusters/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=supporterino.de,resources=piholeclusters/finalizers,verbs=update
