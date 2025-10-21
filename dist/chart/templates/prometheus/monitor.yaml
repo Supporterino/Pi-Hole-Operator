@@ -21,14 +21,14 @@ spec:
         insecureSkipVerify: false
         ca:
           secret:
-            name: metrics-server-cert
+            name: pi-hole-operator-metrics-server-cert
             key: ca.crt
         cert:
           secret:
-            name: metrics-server-cert
+            name: pi-hole-operator-metrics-server-cert
             key: tls.crt
         keySecret:
-          name: metrics-server-cert
+          name: pi-hole-operator-metrics-server-cert
           key: tls.key
         {{- else }}
         # Development/Test mode (insecure configuration)
