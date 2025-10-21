@@ -52,6 +52,7 @@ spec:
     - pi-hole-operator.{{ .Release.Namespace }}.svc
     - pi-hole-operator.{{ .Release.Namespace }}.svc.cluster.local
     - pi-hole-operator-metrics-service.{{ .Release.Namespace }}.svc
+    - pi-hole-operator-controller-manager-metrics-service.{{ .Release.Namespace }}.svc
   issuerRef:
     kind: Issuer
     name: pi-hole-operator-selfsigned-issuer
