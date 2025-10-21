@@ -5,7 +5,7 @@ kind: Issuer
 metadata:
   labels:
     {{- include "chart.labels" . | nindent 4 }}
-  name: selfsigned-issuer
+  name: pi-hole-operator-selfsigned-issuer
   namespace: {{ .Release.Namespace }}
 spec:
   selfSigned: {}
@@ -19,7 +19,7 @@ metadata:
     {{- if .Values.crd.keep }}
     "helm.sh/resource-policy": keep
     {{- end }}
-  name: serving-cert
+  name: pi-hole-operator-serving-cert
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "chart.labels" . | nindent 4 }}
@@ -31,7 +31,7 @@ spec:
   issuerRef:
     kind: Issuer
     name: selfsigned-issuer
-  secretName: webhook-server-cert
+  secretName: pi-hole-operator-webhook-server-cert
 {{- end }}
 {{- if .Values.metrics.enable }}
 ---
@@ -45,7 +45,7 @@ metadata:
     {{- end }}
   labels:
     {{- include "chart.labels" . | nindent 4 }}
-  name: metrics-certs
+  name: pi-hole-operator-metrics-certs
   namespace: {{ .Release.Namespace }}
 spec:
   dnsNames:
@@ -55,6 +55,6 @@ spec:
   issuerRef:
     kind: Issuer
     name: selfsigned-issuer
-  secretName: metrics-server-cert
+  secretName: pi-hole-operator-metrics-server-cert
 {{- end }}
 {{- end }}

@@ -6,7 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pi-hole-operator
     app.kubernetes.io/managed-by: kustomize
-  name: metrics-certs  # this name should match the one appeared in kustomizeconfig.yaml
+  name: pi-hole-operator-metrics-certs  # this name should match the one appeared in kustomizeconfig.yaml
   namespace: system
 spec:
   dnsNames:
@@ -16,5 +16,5 @@ spec:
   - SERVICE_NAME.SERVICE_NAMESPACE.svc.cluster.local
   issuerRef:
     kind: Issuer
-    name: selfsigned-issuer
-  secretName: metrics-server-cert
+    name: pi-hole-operator-selfsigned-issuer
+  secretName: pi-hole-operator-metrics-server-cert

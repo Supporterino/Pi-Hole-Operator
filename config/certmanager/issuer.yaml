@@ -7,7 +7,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pi-hole-operator
     app.kubernetes.io/managed-by: kustomize
-  name: selfsigned-issuer
+  name: pi-hole-operator-selfsigned-issuer
   namespace: system
 spec:
   selfSigned: {}

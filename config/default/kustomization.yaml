@@ -127,7 +127,7 @@ replacements:
          kind: Certificate
          group: cert-manager.io
          version: v1
-         name: serving-cert
+         name: pi-hole-operator-serving-cert
        fieldPaths:
          - .spec.dnsNames.0
          - .spec.dnsNames.1
@@ -145,7 +145,7 @@ replacements:
          kind: Certificate
          group: cert-manager.io
          version: v1
-         name: serving-cert
+         name: pi-hole-operator-serving-cert
        fieldPaths:
          - .spec.dnsNames.0
          - .spec.dnsNames.1
@@ -158,7 +158,7 @@ replacements:
      kind: Certificate
      group: cert-manager.io
      version: v1
-     name: serving-cert # This name should match the one in certificate.yaml
+     name: pi-hole-operator-serving-cert # This name should match the one in certificate.yaml
      fieldPath: .metadata.namespace # Namespace of the certificate CR
    targets:
      - select:
@@ -173,7 +173,7 @@ replacements:
      kind: Certificate
      group: cert-manager.io
      version: v1
-     name: serving-cert
+     name: pi-hole-operator-serving-cert
      fieldPath: .metadata.name
    targets:
      - select:
@@ -189,7 +189,7 @@ replacements:
      kind: Certificate
      group: cert-manager.io
      version: v1
-     name: serving-cert
+     name: pi-hole-operator-serving-cert
      fieldPath: .metadata.namespace # Namespace of the certificate CR
    targets:
      - select:
@@ -204,7 +204,7 @@ replacements:
      kind: Certificate
      group: cert-manager.io
      version: v1
-     name: serving-cert
+     name: pi-hole-operator-serving-cert
      fieldPath: .metadata.name
    targets:
      - select:
