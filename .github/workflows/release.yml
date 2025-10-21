@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: true
-          fetch-depth: 0
+          fetch-depth: 0   # full history is required for git‑log
 
       - name: Build
         run: |
@@ -61,10 +61,8 @@ jobs:
       - name: Push Helm chart as OCI to Github
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | \
-          helm registry login -u ${{ github.actor }} --password-stdin ghcr.io
-          
+            helm registry login -u ${{ github.actor }} --password-stdin ghcr.io
           helm package dist/chart
-          
           helm push pi-hole-operator-${{ env.VERSION }}.tgz oci://ghcr.io/supporterino/pi-hole-operator/helm
 
       - name: Build and Publish image into GHCR
@@ -82,6 +80,30 @@ jobs:
           DOCKER_USERNAME: ${{ github.actor }}
           DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Generate release notes
+        id: gen_notes
+        run: |
+          # Pull the full history so we can compare tags
+          git fetch --prune --unshallow
+          
+          # Find the tag that precedes the current one
+          PREV_VERSION=$(git describe --tags \
+            $(git rev-list --tags --skip=1 --max-count=1) 2>/dev/null || echo "0.0.0")
+          echo "PREV_VERSION=$PREV_VERSION" >> $GITHUB_ENV
+          
+          # Build the commit list
+          if [[ "$PREV_VERSION" == "0.0.0" ]]; then
+            LOG=$(git log --pretty=format:"- %h %s")
+          else
+            LOG=$(git log --pretty=format:"- %h %s" "$PREV_VERSION"..HEAD)
+          fi
+          
+          # Compose the notes
+          NOTES="📝 Release notes (commits since $PREV_VERSION):\n$LOG"
+          
+          # Write the multiline output to GITHUB_OUTPUT
+          printf 'release_notes<<EOF\n%s\nEOF' "$NOTES" >> $GITHUB_OUTPUT
+
       - name: publish github release
         uses: softprops/action-gh-release@v2
         with:
@@ -90,8 +112,8 @@ jobs:
           name: ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           body: |
-            Release ${{ github.ref_name }}
-
+            ${{ steps.gen_notes.outputs.release_notes }}
+            
             Docker image: ghcr.io/supporterino/pi-hole-operator:${{ github.ref_name }}
             Helm chart: oci://ghcr.io/supporterino/pi-hole-operator/helm
-          draft: true
+          draft: false
