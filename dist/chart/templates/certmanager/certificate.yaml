@@ -30,7 +30,7 @@ spec:
     - pi-hole-operator-webhook-service.{{ .Release.Namespace }}.svc
   issuerRef:
     kind: Issuer
-    name: selfsigned-issuer
+    name: pi-hole-operator-selfsigned-issuer
   secretName: pi-hole-operator-webhook-server-cert
 {{- end }}
 {{- if .Values.metrics.enable }}
@@ -54,7 +54,7 @@ spec:
     - pi-hole-operator-metrics-service.{{ .Release.Namespace }}.svc
   issuerRef:
     kind: Issuer
-    name: selfsigned-issuer
+    name: pi-hole-operator-selfsigned-issuer
   secretName: pi-hole-operator-metrics-server-cert
 {{- end }}
 {{- end }}
