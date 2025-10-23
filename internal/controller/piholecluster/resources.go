@@ -317,13 +317,43 @@ func (r *Reconciler) ensureReadOnlySTS(ctx context.Context, piHoleCluster *suppo
 		{Name: volumeName, MountPath: "/etc/pihole", SubPath: "config"},
 		{Name: volumeName, MountPath: "/etc/dnsmasq.d", SubPath: "dnsmasq"},
 	}
-	desired.Spec.Template.Spec.Volumes = []corev1.Volume{
-		{
-			Name: volumeName,
-			VolumeSource: corev1.VolumeSource{
-				EmptyDir: &corev1.EmptyDirVolumeSource{},
+
+	switch piHoleCluster.Spec.ReadOnlyVolume.ReadOnlyVolumeType {
+	case "ephemeral":
+		size := piHoleCluster.Spec.ReadOnlyVolume.Size
+		accessModes := piHoleCluster.Spec.ReadOnlyVolume.AccessModes
+		storageClassName := piHoleCluster.Spec.ReadOnlyVolume.StorageClassName
+
+		desired.Spec.Template.Spec.Volumes = []corev1.Volume{
+			{
+				Name: volumeName,
+				VolumeSource: corev1.VolumeSource{
+					Ephemeral: &corev1.EphemeralVolumeSource{
+						VolumeClaimTemplate: &corev1.PersistentVolumeClaimTemplate{
+							ObjectMeta: metav1.ObjectMeta{Name: volumeName},
+							Spec: corev1.PersistentVolumeClaimSpec{
+								AccessModes:      accessModes,
+								StorageClassName: storageClassName,
+								Resources: corev1.VolumeResourceRequirements{
+									Requests: map[corev1.ResourceName]resource.Quantity{
+										corev1.ResourceStorage: resource.MustParse(size),
+									},
+								},
+							},
+						},
+					},
+				},
 			},
-		},
+		}
+	default: // "emptyDir" or unspecified
+		desired.Spec.Template.Spec.Volumes = []corev1.Volume{
+			{
+				Name: volumeName,
+				VolumeSource: corev1.VolumeSource{
+					EmptyDir: &corev1.EmptyDirVolumeSource{},
+				},
+			},
+		}
 	}
 
 	if !reflect.DeepEqual(piHoleCluster.Spec.Resources, corev1.ResourceRequirements{}) {

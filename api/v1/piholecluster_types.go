@@ -29,6 +29,11 @@ type PiHoleClusterSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	Replicas int32 `json:"replicas"`
 
+	// ReadOnlyVolume holds optional configuration for the read‑only PiHole pod volume.
+	//
+	// +optional
+	ReadOnlyVolume *ReadOnlyVolumeSpec `json:"readOnlyVolume,omitempty"`
+
 	// Ingress holds configuration for exposing the cluster via an Ingress.
 	//
 	// +optional
@@ -84,6 +89,30 @@ type PiHoleClusterSpec struct {
 	//
 	// +optional
 	ReadinessProbe *corev1.Probe `json:"readinessProbe,omitempty"`
+}
+
+// ReadOnlyVolumeSpec holds configuration for the read‑only PiHole pod volume.
+//
+// +optional
+type ReadOnlyVolumeSpec struct {
+	// ReadOnlyVolumeType controls the type of volume used by read‑only PiHole pods.
+	//
+	// +kubebuilder:validation:Enum=emptyDir;ephemeral
+	// +kubebuilder:default=emptyDir
+	ReadOnlyVolumeType string `json:"readOnlyVolumeType,omitempty"`
+
+	// Size is the requested storage size, e.g. “10Mi”.
+	Size string `json:"size,omitempty"`
+
+	// StorageClassName is the name of a StorageClass to use.
+	//
+	// +optional
+	StorageClassName *string `json:"storageClassName,omitempty"`
+
+	// AccessModes lists the desired PV access modes.
+	//
+	// +optional
+	AccessModes []corev1.PersistentVolumeAccessMode `json:"accessModes,omitempty"`
 }
 
 // IngressSpec defines the ingress configuration for a PiHoleCluster.

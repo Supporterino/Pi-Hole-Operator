@@ -887,6 +887,31 @@ spec:
                 required:
                 - size
                 type: object
+              readOnlyVolume:
+                description: ReadOnlyVolume holds optional configuration for the read‑only
+                  PiHole pod volume.
+                properties:
+                  accessModes:
+                    description: AccessModes lists the desired PV access modes.
+                    items:
+                      type: string
+                    type: array
+                  readOnlyVolumeType:
+                    default: emptyDir
+                    description: ReadOnlyVolumeType controls the type of volume used
+                      by read‑only PiHole pods.
+                    enum:
+                    - emptyDir
+                    - ephemeral
+                    type: string
+                  size:
+                    description: Size is the requested storage size, e.g. “10Mi”.
+                    type: string
+                  storageClassName:
+                    description: StorageClassName is the name of a StorageClass to
+                      use.
+                    type: string
+                type: object
               readinessProbe:
                 description: |-
                   ReadinessProbe defines the readiness probe for the exporter container.

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"regexp"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -61,14 +62,11 @@ func (d *PiHoleClusterCustomDefaulter) Default(_ context.Context, obj runtime.Ob
 	}
 	piholeclusterlog.Info("Defaulting for PiHoleCluster", "name", piholecluster.GetName())
 
-	// Ensure the top‑level Spec is non‑nil – this is normally guaranteed by CRD validation
 	if piholecluster.Spec.Ingress == nil {
-		// Default Ingress to disabled
 		piholecluster.Spec.Ingress = &supporterino.IngressSpec{Enabled: false}
 	}
 
 	if piholecluster.Spec.Monitoring == nil {
-		// Default Monitoring to disabled Exporter and PodMonitor
 		piholecluster.Spec.Monitoring = &supporterino.MonitoringSpec{
 			Exporter:   &supporterino.ExporterSpec{Enabled: false},
 			PodMonitor: &supporterino.PodMonitorSpec{Enabled: false},
@@ -83,11 +81,24 @@ func (d *PiHoleClusterCustomDefaulter) Default(_ context.Context, obj runtime.Ob
 	}
 
 	if piholecluster.Spec.Sync == nil {
-		// Default Sync to disabled cron and ad‑list sync
 		piholecluster.Spec.Sync = &supporterino.SyncSpec{AdLists: true, Config: true}
 	}
 
-	// Replicas defaults to 0 (zero value) – no action needed.
+	if piholecluster.Spec.ReadOnlyVolume == nil {
+		piholecluster.Spec.ReadOnlyVolume = &supporterino.ReadOnlyVolumeSpec{}
+	}
+
+	if piholecluster.Spec.ReadOnlyVolume.ReadOnlyVolumeType == "" {
+		piholecluster.Spec.ReadOnlyVolume.ReadOnlyVolumeType = "emptyDir"
+	}
+
+	if piholecluster.Spec.ReadOnlyVolume.Size == "" {
+		piholecluster.Spec.ReadOnlyVolume.Size = "5Gi"
+	}
+
+	if len(piholecluster.Spec.ReadOnlyVolume.AccessModes) == 0 {
+		piholecluster.Spec.ReadOnlyVolume.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
+	}
 
 	return nil
 }
