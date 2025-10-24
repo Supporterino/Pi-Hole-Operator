@@ -663,7 +663,6 @@ func (r *Reconciler) ensureDNSService(ctx context.Context, piHoleCluster *suppor
 			},
 		},
 		Spec: corev1.ServiceSpec{
-			Type: piHoleCluster.Spec.ServiceType,
 			Ports: []corev1.ServicePort{
 				{Name: "dns", Protocol: corev1.ProtocolUDP, Port: 53, TargetPort: intstr.FromInt32(53)},
 			},
@@ -674,11 +673,39 @@ func (r *Reconciler) ensureDNSService(ctx context.Context, piHoleCluster *suppor
 		},
 	}
 
+	// Apply service configuration if provided
+	if piHoleCluster.Spec.Service != nil {
+		svcSpec := piHoleCluster.Spec.Service
+
+		if svcSpec.Type != "" {
+			desired.Spec.Type = svcSpec.Type
+		} else {
+			desired.Spec.Type = corev1.ServiceTypeClusterIP
+		}
+		if svcSpec.ExternalTrafficPolicy != "" {
+			desired.Spec.ExternalTrafficPolicy = svcSpec.ExternalTrafficPolicy
+		}
+		if svcSpec.ClusterIP != "" {
+			desired.Spec.ClusterIP = svcSpec.ClusterIP
+		}
+
+		if len(svcSpec.Annotations) > 0 {
+			desired.ObjectMeta.Annotations = svcSpec.Annotations
+		}
+		if len(svcSpec.Labels) > 0 {
+			for k, v := range svcSpec.Labels {
+				desired.ObjectMeta.Labels[k] = v
+			}
+		}
+	} else {
+		// Default to ClusterIP if no service spec is defined
+		desired.Spec.Type = corev1.ServiceTypeClusterIP
+	}
+
 	_, err := utils.UpsertResource(ctx, r.Client, piHoleCluster, desired, svcName, log, nil)
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
 

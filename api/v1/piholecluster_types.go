@@ -49,11 +49,14 @@ type PiHoleClusterSpec struct {
 	// +optional
 	Monitoring *MonitoringSpec `json:"monitoring,omitempty"`
 
-	// ServiceType controls the Kubernetes Service type.
+	// Service holds configuration for the cluster’s DNS service.
 	//
-	// +kubebuilder:validation:Enum=ClusterIP;LoadBalancer
-	// +kubebuilder:default=ClusterIP
-	ServiceType corev1.ServiceType `json:"serviceType,omitempty"`
+	// The operator will create a Service named <cluster>-dns.  The
+	// struct allows the user to configure the service type and several
+	// optional fields that are only relevant for specific types.
+	//
+	// +optional
+	Service *ServiceSpec `json:"service,omitempty"`
 
 	Config *ConfigSpec `json:"config,omitempty"`
 
@@ -89,6 +92,24 @@ type PiHoleClusterSpec struct {
 	//
 	// +optional
 	ReadinessProbe *corev1.Probe `json:"readinessProbe,omitempty"`
+}
+
+// ServiceSpec holds configuration for the DNS service created by the operator.
+type ServiceSpec struct {
+	// Type controls the Kubernetes Service type.  If omitted, defaults to ClusterIP.
+	Type corev1.ServiceType `json:"type,omitempty"`
+
+	// ExternalTrafficPolicy controls traffic routing for LoadBalancer services.
+	ExternalTrafficPolicy corev1.ServiceExternalTrafficPolicyType `json:"externalTrafficPolicy,omitempty"`
+
+	// ClusterIP can be set to a static IP when Type is ClusterIP.
+	ClusterIP string `json:"clusterIP,omitempty"`
+
+	// Annotations are added to the Service object.
+	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// Labels are merged into the Service’s labels.
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // ReadOnlyVolumeSpec holds configuration for the read‑only PiHole pod volume.
