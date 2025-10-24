@@ -1562,13 +1562,37 @@ spec:
                         type: object
                     type: object
                 type: object
-              serviceType:
-                default: ClusterIP
-                description: ServiceType controls the Kubernetes Service type.
-                enum:
-                - ClusterIP
-                - LoadBalancer
-                type: string
+              service:
+                description: |-
+                  Service holds configuration for the cluster’s DNS service.
+
+                  The operator will create a Service named <cluster>-dns.  The
+                  struct allows the user to configure the service type and several
+                  optional fields that are only relevant for specific types.
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: Annotations are added to the Service object.
+                    type: object
+                  clusterIP:
+                    description: ClusterIP can be set to a static IP when Type is
+                      ClusterIP.
+                    type: string
+                  externalTrafficPolicy:
+                    description: ExternalTrafficPolicy controls traffic routing for
+                      LoadBalancer services.
+                    type: string
+                  labels:
+                    additionalProperties:
+                      type: string
+                    description: Labels are merged into the Service’s labels.
+                    type: object
+                  type:
+                    description: Type controls the Kubernetes Service type.  If omitted,
+                      defaults to ClusterIP.
+                    type: string
+                type: object
               sync:
                 description: Sync defines optional sync behaviour for the cluster.
                 properties:
