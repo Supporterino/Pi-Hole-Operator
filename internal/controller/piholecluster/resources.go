@@ -690,11 +690,11 @@ func (r *Reconciler) ensureDNSService(ctx context.Context, piHoleCluster *suppor
 		}
 
 		if len(svcSpec.Annotations) > 0 {
-			desired.ObjectMeta.Annotations = svcSpec.Annotations
+			desired.Annotations = svcSpec.Annotations
 		}
 		if len(svcSpec.Labels) > 0 {
 			for k, v := range svcSpec.Labels {
-				desired.ObjectMeta.Labels[k] = v
+				desired.Labels[k] = v
 			}
 		}
 	} else {
