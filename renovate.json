@@ -3,5 +3,11 @@
   "labels": ["dependencies"],
   "extends": [
     "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "managers": ["gomod"],
+      "enabled": false
+    }
   ]
 }
