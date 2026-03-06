@@ -66,7 +66,7 @@ jobs:
           helm push pi-hole-operator-${{ env.VERSION }}.tgz oci://ghcr.io/supporterino/pi-hole-operator/helm
 
       - name: Build and Publish image into GHCR
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
